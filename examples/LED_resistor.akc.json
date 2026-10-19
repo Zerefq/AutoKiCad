@@ -1,0 +1,101 @@
+{
+ "version": 1,
+ "name": "Светодиод с резистором",
+ "components": [
+  {
+   "id": "bb",
+   "type": "breadboard",
+   "ref": "BB1",
+   "value": "",
+   "x": 300,
+   "y": 250,
+   "rot": 0,
+   "props": {}
+  },
+  {
+   "id": "bt1",
+   "type": "battery",
+   "ref": "BT1",
+   "value": "9V",
+   "x": 80,
+   "y": 200,
+   "rot": 90,
+   "props": {}
+  },
+  {
+   "id": "r1",
+   "type": "resistor",
+   "ref": "R1",
+   "value": "1k",
+   "x": 200,
+   "y": 190,
+   "rot": 90,
+   "props": {}
+  },
+  {
+   "id": "d1",
+   "type": "led",
+   "ref": "D1",
+   "value": "LED",
+   "x": 190,
+   "y": 250,
+   "rot": 180,
+   "props": {
+    "color": "green"
+   }
+  }
+ ],
+ "wires": [
+  {
+   "id": "w1",
+   "from": {
+    "c": "bt1",
+    "p": "1"
+   },
+   "to": {
+    "c": "bb",
+    "p": "TP1"
+   },
+   "points": [],
+   "color": "#e53935",
+   "net": ""
+  },
+  {
+   "id": "w2",
+   "from": {
+    "c": "bt1",
+    "p": "2"
+   },
+   "to": {
+    "c": "bb",
+    "p": "TN1"
+   },
+   "points": [
+    [
+     100,
+     240
+    ],
+    [
+     100,
+     170
+    ]
+   ],
+   "color": "#212121",
+   "net": ""
+  },
+  {
+   "id": "w3",
+   "from": {
+    "c": "bb",
+    "p": "b3"
+   },
+   "to": {
+    "c": "bb",
+    "p": "TN3"
+   },
+   "points": [],
+   "color": "#212121",
+   "net": ""
+  }
+ ]
+}

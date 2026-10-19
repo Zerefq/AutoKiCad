@@ -112,5 +112,26 @@ AK.util = (function () {
     return out;
   }
 
-  return { uid, uuid, parseValue, fmt, download, esc, rotPt, zip };
+  // SVG-текст → PNG (Blob); scale — во сколько раз крупнее размеров SVG
+  function svgToPng(svgText, scale) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(new Blob([svgText], { type: 'image/svg+xml' }));
+      const img = new Image();
+      img.onload = () => {
+        const cv = document.createElement('canvas');
+        cv.width = Math.round(img.naturalWidth * (scale || 1));
+        cv.height = Math.round(img.naturalHeight * (scale || 1));
+        const g = cv.getContext('2d');
+        g.fillStyle = '#fff';
+        g.fillRect(0, 0, cv.width, cv.height);
+        g.drawImage(img, 0, 0, cv.width, cv.height);
+        URL.revokeObjectURL(url);
+        cv.toBlob(b => (b ? resolve(b) : reject(new Error('не удалось создать картинку'))), 'image/png');
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('SVG не загрузился')); };
+      img.src = url;
+    });
+  }
+
+  return { uid, uuid, parseValue, fmt, download, esc, rotPt, zip, svgToPng };
 })();

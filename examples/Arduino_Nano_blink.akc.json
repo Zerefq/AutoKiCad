@@ -1,0 +1,97 @@
+{
+ "version": 1,
+ "name": "Arduino Nano: мигание D13",
+ "components": [
+  {
+   "id": "bb",
+   "type": "breadboard",
+   "ref": "BB1",
+   "value": "",
+   "x": 300,
+   "y": 250,
+   "rot": 0,
+   "props": {}
+  },
+  {
+   "id": "a1",
+   "type": "nano",
+   "ref": "A1",
+   "value": "Arduino_Nano",
+   "x": 300,
+   "y": 250,
+   "rot": 0,
+   "props": {}
+  },
+  {
+   "id": "r1",
+   "type": "resistor",
+   "ref": "R1",
+   "value": "330",
+   "x": 400,
+   "y": 260,
+   "rot": 90,
+   "props": {}
+  },
+  {
+   "id": "d1",
+   "type": "led",
+   "ref": "D1",
+   "value": "LED",
+   "x": 410,
+   "y": 220,
+   "rot": 0,
+   "props": {
+    "color": "red"
+   }
+  }
+ ],
+ "wires": [
+  {
+   "id": "w1",
+   "from": {
+    "c": "bb",
+    "p": "b19"
+   },
+   "to": {
+    "c": "bb",
+    "p": "TN19"
+   },
+   "points": [],
+   "color": "#212121",
+   "net": ""
+  },
+  {
+   "id": "w2",
+   "from": {
+    "c": "bb",
+    "p": "j8"
+   },
+   "to": {
+    "c": "bb",
+    "p": "j25"
+   },
+   "points": [],
+   "color": "#43a047",
+   "net": ""
+  },
+  {
+   "id": "w3",
+   "from": {
+    "c": "bb",
+    "p": "d27"
+   },
+   "to": {
+    "c": "bb",
+    "p": "TN28"
+   },
+   "points": [
+    [
+     430,
+     230
+    ]
+   ],
+   "color": "#212121",
+   "net": ""
+  }
+ ]
+}

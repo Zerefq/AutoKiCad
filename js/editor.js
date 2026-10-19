@@ -68,15 +68,17 @@ AK.Editor = class {
       if (!at.has(s)) at.set(s, []);
       at.get(s).push(c.id + ':' + p);
     }));
-    at.forEach(ks => { if (ks.length > 1) ks.forEach(k => connected.add(k)); });
+    const isLeg = k => !AK.LIB[this.comp(k.split(':')[0]).type].board;
+    at.forEach(ks => { if (ks.length > 1 && ks.some(isLeg)) ks.forEach(k => connected.add(k)); });
 
     let comps = '', labels = '', pins = '';
+    const selSet = new Set(this.selIds());
     // макетные платы — под остальными компонентами
     const order = P.components.filter(c => AK.LIB[c.type].board).concat(P.components.filter(c => !AK.LIB[c.type].board));
     order.forEach(c => {
       const d = AK.LIB[c.type];
       const [bx, by, bw, bh] = d.visual.hit || d.visual.box;
-      const isSel = sel && sel.kind === 'comp' && sel.id === c.id;
+      const isSel = selSet.has(c.id);
       comps += `<g class="comp${d.board ? ' board' : ''}${isSel ? ' sel' : ''}" data-id="${c.id}" transform="translate(${c.x} ${c.y}) rotate(${c.rot || 0})">` +
         d.visual.draw(c, { on: connected }) + (d.board ? '' : `<rect class="hit" x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="transparent"/>`) + '</g>';
       const wb = AK.compWorldBox(c);
@@ -123,6 +125,10 @@ AK.Editor = class {
       const pts = [a, ...this.wiring.points, this.wiring.cur || a].map(p => p.join(',')).join(' ');
       s += `<polyline class="w-temp" points="${pts}" stroke="${AK.WIRE_COLORS[this.wireColor]}"/>`;
     }
+    if (this.box) {
+      const b = this.box, x = Math.min(b.x0, b.x1), y = Math.min(b.y0, b.y1);
+      s += `<rect class="selrect" x="${x}" y="${y}" width="${Math.abs(b.x1 - b.x0)}" height="${Math.abs(b.y1 - b.y0)}"/>`;
+    }
     if (this.placing && this.placing.cur) {
       const d = AK.LIB[this.placing.type];
       const fake = { type: this.placing.type, value: d.value, ref: d.prefix + '?', props: this.defaultProps(d), rot: 0 };
@@ -150,13 +156,61 @@ AK.Editor = class {
     return c;
   }
 
+  // ---------------- выделение ----------------
+  // выделенные компоненты: один (kind 'comp') или группа (kind 'multi')
+  selIds() {
+    const s = this.app.sel;
+    if (!s) return [];
+    if (s.kind === 'comp') return [s.id];
+    if (s.kind === 'multi') return s.ids.filter(id => this.comp(id));
+    return [];
+  }
+  setSel(ids) {
+    this.app.select(!ids.length ? null : ids.length === 1 ? { kind: 'comp', id: ids[0] } : { kind: 'multi', ids });
+  }
+  selectAll() {
+    this.cancel();
+    this.setSel(this.P.components.map(c => c.id));
+    this.render();
+  }
+
+  // что двигается вместе с выделением: сами компоненты, вставленные в выделенные платы,
+  // и провода, у которых оба конца в этом наборе (их точки изгиба)
+  moveSet(ids) {
+    const set = new Set(ids);
+    const pk = o => Object.keys(AK.LIB[o.type].visual.pins).map(p => AK.pinWorld(o, p).map(Math.round).join(','));
+    ids.forEach(id => {
+      const b = this.comp(id);
+      if (!b || !AK.LIB[b.type].board) return;
+      const holes = new Set(pk(b));
+      this.P.components.forEach(o => { if (!AK.LIB[o.type].board && pk(o).some(s => holes.has(s))) set.add(o.id); });
+    });
+    return {
+      comps: this.P.components.filter(c => set.has(c.id)),
+      wires: this.P.wires.filter(w => set.has(w.from.c) && set.has(w.to.c)),
+    };
+  }
+  shiftSet(ms, dx, dy) {
+    ms.comps.forEach(o => { o.x += dx; o.y += dy; });
+    ms.wires.forEach(w => { w.points = w.points.map(([x, y]) => [x + dx, y + dy]); });
+  }
+
+  nudge(dx, dy) {
+    const ids = this.selIds();
+    if (!ids.length) return;
+    this.app.checkpoint();
+    this.shiftSet(this.moveSet(ids), dx, dy);
+    this.app.changed({ keepView: true });
+  }
+
   deleteSelection() {
     const sel = this.app.sel;
     if (!sel) return;
     this.app.checkpoint();
-    if (sel.kind === 'comp') {
-      this.P.components = this.P.components.filter(c => c.id !== sel.id);
-      this.P.wires = this.P.wires.filter(w => w.from.c !== sel.id && w.to.c !== sel.id);
+    const ids = new Set(this.selIds());
+    if (ids.size) {
+      this.P.components = this.P.components.filter(c => !ids.has(c.id));
+      this.P.wires = this.P.wires.filter(w => !ids.has(w.from.c) && !ids.has(w.to.c));
     } else {
       this.P.wires = this.P.wires.filter(w => w.id !== sel.id);
     }
@@ -165,24 +219,85 @@ AK.Editor = class {
   }
 
   rotateSelection() {
-    const sel = this.app.sel;
-    if (!sel || sel.kind !== 'comp') return;
+    const ids = this.selIds();
+    if (!ids.length) return;
     this.app.checkpoint();
-    const c = this.comp(sel.id);
-    c.rot = ((c.rot || 0) + 90) % 360;
-    [c.x, c.y] = AK.snapPos(c.type, c.rot, c.x, c.y);
+    const ms = this.moveSet(ids);
+    if (ms.comps.length === 1) {
+      const c = ms.comps[0];
+      c.rot = ((c.rot || 0) + 90) % 360;
+      [c.x, c.y] = AK.snapPos(c.type, c.rot, c.x, c.y);
+    } else {
+      // группа поворачивается вокруг узла сетки в центре — выводы остаются в отверстиях
+      let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+      ms.comps.forEach(c => { const b = AK.compWorldBox(c); x1 = Math.min(x1, b.x); y1 = Math.min(y1, b.y); x2 = Math.max(x2, b.x + b.w); y2 = Math.max(y2, b.y + b.h); });
+      const gx = Math.round((x1 + x2) / 20) * 10, gy = Math.round((y1 + y2) / 20) * 10;
+      const R = ([x, y]) => { const [rx, ry] = AK.util.rotPt(x - gx, y - gy, 90); return [gx + rx, gy + ry]; };
+      ms.comps.forEach(c => { [c.x, c.y] = R([c.x, c.y]); c.rot = ((c.rot || 0) + 90) % 360; });
+      ms.wires.forEach(w => { w.points = w.points.map(R); });
+    }
     this.app.changed();
   }
 
+  // ---------------- буфер обмена ----------------
+  makeClip(ids) {
+    const ms = this.moveSet(ids);
+    if (!ms.comps.length) return null;
+    const ee = {};
+    ms.comps.forEach(c => { const d = AK.LIB[c.type]; if (d.ee && this.P.eeParts && this.P.eeParts[d.ee.uuid]) ee[d.ee.uuid] = this.P.eeParts[d.ee.uuid]; });
+    // ширина группы — копия ставится справа от оригинала, не налезая на него (иначе отверстия плат совпадут)
+    let x1 = Infinity, x2 = -Infinity;
+    ms.comps.forEach(c => { const b = AK.compWorldBox(c); x1 = Math.min(x1, b.x); x2 = Math.max(x2, b.x + b.w); });
+    ms.wires.forEach(w => w.points.forEach(([x]) => { x1 = Math.min(x1, x); x2 = Math.max(x2, x); }));
+    const step = Math.ceil((x2 - x1 + 20) / 10) * 10;
+    return JSON.parse(JSON.stringify({ comps: ms.comps, wires: ms.wires, eeParts: ee, step }));
+  }
+  copySelection() {
+    const clip = this.makeClip(this.selIds());
+    if (!clip) return false;
+    AK.clipboard = clip;
+    this.pasteN = 0;
+    try { localStorage.setItem('autokicad.clipboard', JSON.stringify(clip)); } catch (e) { /* хранилище недоступно */ }
+    return true;
+  }
+  paste() {
+    let clip = AK.clipboard;
+    if (!clip) { try { clip = JSON.parse(localStorage.getItem('autokicad.clipboard')); } catch (e) { clip = null; } }
+    if (!clip || !clip.comps || !clip.comps.length) { this.app.toast('Буфер пуст: выделите компоненты и нажмите Ctrl+C'); return; }
+    this.pasteN = (this.pasteN || 0) + 1;
+    this.insertClip(clip, clip.step * this.pasteN, 0);
+  }
   duplicateSelection() {
-    const sel = this.app.sel;
-    if (!sel || sel.kind !== 'comp') return;
+    const clip = this.makeClip(this.selIds());
+    if (clip) this.insertClip(clip, clip.step, 0);
+  }
+  insertClip(clip, dx, dy) {
+    this.cancel();
     this.app.checkpoint();
-    const src = this.comp(sel.id);
-    const c = this.addComponent(src.type, src.x + 30, src.y + 30);
-    c.value = src.value; c.rot = src.rot; c.props = Object.assign({}, src.props);
-    [c.x, c.y] = AK.snapPos(c.type, c.rot, c.x, c.y);
-    this.app.select({ kind: 'comp', id: c.id });
+    if (Object.keys(clip.eeParts || {}).length) {
+      this.P.eeParts = Object.assign({}, clip.eeParts, this.P.eeParts);
+      AK.EE.register(this.P);
+    }
+    const map = {}, ids = [];
+    clip.comps.forEach(src => {
+      const d = AK.LIB[src.type];
+      if (!d) return;
+      const c = JSON.parse(JSON.stringify(src));
+      c.id = AK.util.uid('c');
+      c.ref = this.app.nextRef(d.prefix, d.virtual);
+      c.x += dx; c.y += dy;
+      map[src.id] = c.id;
+      this.P.components.push(c);
+      ids.push(c.id);
+    });
+    clip.wires.forEach(src => {
+      if (!map[src.from.c] || !map[src.to.c]) return;
+      this.P.wires.push(Object.assign(JSON.parse(JSON.stringify(src)), {
+        id: AK.util.uid('w'), from: { c: map[src.from.c], p: src.from.p }, to: { c: map[src.to.c], p: src.to.p },
+        points: src.points.map(([x, y]) => [x + dx, y + dy]),
+      }));
+    });
+    this.setSel(ids);
     this.app.changed();
   }
 
@@ -232,11 +347,13 @@ AK.Editor = class {
       this.zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX - r.left, e.clientY - r.top);
     }, { passive: false });
 
-    svg.addEventListener('contextmenu', e => { e.preventDefault(); this.cancel(); });
+    svg.addEventListener('contextmenu', e => { e.preventDefault(); if (!this.panMoved) this.cancel(); });
 
     svg.addEventListener('pointerdown', e => {
       const [wx, wy] = this.toWorld(e);
-      if (e.button === 1 || (e.button === 0 && e.altKey)) {
+      // сдвиг поля — средней или правой кнопкой (как в EasyEDA), либо Alt + левой
+      if (e.button === 1 || e.button === 2 || (e.button === 0 && e.altKey)) {
+        this.panMoved = false;
         this.pan = { x: e.clientX, y: e.clientY, vx: this.view.x, vy: this.view.y };
         svg.setPointerCapture(e.pointerId);
         return;
@@ -292,36 +409,43 @@ AK.Editor = class {
       }
 
       const compEl = e.target.closest('.comp');
-      if (compEl) {
+      const add = e.shiftKey || e.ctrlKey || e.metaKey;
+      const onBoard = compEl && AK.LIB[this.comp(compEl.dataset.id).type].board;
+      if (compEl && !(add && onBoard)) {
         const c = this.comp(compEl.dataset.id);
-        this.app.select({ kind: 'comp', id: c.id });
-        this.drag = { id: c.id, ox: wx - c.x, oy: wy - c.y, moved: false };
-        if (AK.LIB[c.type].board) {
-          // плата едет вместе со вставленными в неё компонентами и перемычками
-          const pk = o => Object.keys(AK.LIB[o.type].visual.pins).map(p => AK.pinWorld(o, p).map(Math.round).join(','));
-          const holes = new Set(pk(c));
-          const carry = this.P.components.filter(o => !AK.LIB[o.type].board && pk(o).some(s => holes.has(s)));
-          const ids = new Set([c.id, ...carry.map(o => o.id)]);
-          this.drag.carry = carry;
-          this.drag.wires = this.P.wires.filter(w => ids.has(w.from.c) && ids.has(w.to.c));
+        let ids = this.selIds();
+        if (add) {
+          // Ctrl/Shift + клик — добавить компонент в выделение или убрать из него
+          ids = ids.includes(c.id) ? ids.filter(id => id !== c.id) : ids.concat(c.id);
+          this.setSel(ids);
+          this.render();
+          return;
         }
+        if (!ids.includes(c.id)) { ids = [c.id]; this.setSel(ids); }
+        // вместе с компонентом едет всё выделенное; плата везёт вставленные в неё компоненты и перемычки
+        this.drag = { id: c.id, ox: wx - c.x, oy: wy - c.y, moved: false, set: this.moveSet(ids) };
         svg.setPointerCapture(e.pointerId);
         this.render();
         return;
       }
 
-      this.app.select(null);
-      this.render();
-      this.pan = { x: e.clientX, y: e.clientY, vx: this.view.x, vy: this.view.y };
+      // рамка выделения: по пустому месту, или с Shift/Ctrl — и поверх платы
+      this.box = { x0: wx, y0: wy, x1: wx, y1: wy, add, base: add ? this.selIds() : [], sx: e.clientX, sy: e.clientY };
       svg.setPointerCapture(e.pointerId);
     });
 
     svg.addEventListener('pointermove', e => {
       const [wx, wy] = this.toWorld(e);
       if (this.pan) {
+        if (Math.abs(e.clientX - this.pan.x) + Math.abs(e.clientY - this.pan.y) > 3) this.panMoved = true;
         this.view.x = this.pan.vx + e.clientX - this.pan.x;
         this.view.y = this.pan.vy + e.clientY - this.pan.y;
         this.applyView();
+        return;
+      }
+      if (this.box) {
+        this.box.x1 = wx; this.box.y1 = wy;
+        this.renderTemp();
         return;
       }
       if (this.drag) {
@@ -329,12 +453,7 @@ AK.Editor = class {
         const [nx, ny] = AK.snapPos(c.type, c.rot, wx - this.drag.ox, wy - this.drag.oy);
         if (nx !== c.x || ny !== c.y) {
           if (!this.drag.moved) { this.app.checkpoint(); this.drag.moved = true; }
-          const dx = nx - c.x, dy = ny - c.y;
-          c.x = nx; c.y = ny;
-          if (this.drag.carry) {
-            this.drag.carry.forEach(o => { o.x += dx; o.y += dy; });
-            this.drag.wires.forEach(w => { w.points = w.points.map(([x, y]) => [x + dx, y + dy]); });
-          }
+          this.shiftSet(this.drag.set, nx - c.x, ny - c.y);
           this.render();
         }
         return;
@@ -356,6 +475,24 @@ AK.Editor = class {
         this.wiring.down = false;
         const pinEl = e.target && e.target.closest && e.target.closest('.pin');
         if (pinEl && this.finishWire(pinEl.dataset.k)) return;
+      }
+      if (this.box) {
+        const b = this.box;
+        this.box = null;
+        if (Math.abs(e.clientX - b.sx) + Math.abs(e.clientY - b.sy) < 4) {
+          // простой клик по пустому месту — снять выделение
+          if (!b.add) this.app.select(null);
+        } else {
+          // выделяются компоненты, целиком попавшие в рамку
+          const x1 = Math.min(b.x0, b.x1), x2 = Math.max(b.x0, b.x1), y1 = Math.min(b.y0, b.y1), y2 = Math.max(b.y0, b.y1);
+          const inside = this.P.components.filter(c => {
+            const r = AK.compWorldBox(c);
+            return r.x >= x1 && r.y >= y1 && r.x + r.w <= x2 && r.y + r.h <= y2;
+          }).map(c => c.id);
+          this.setSel([...new Set(b.base.concat(inside))]);
+        }
+        this.render();
+        return;
       }
       const moved = (this.drag && this.drag.moved) || (this.hdrag && this.hdrag.moved);
       this.drag = null; this.hdrag = null; this.pan = null;

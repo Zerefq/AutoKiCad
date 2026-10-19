@@ -10,7 +10,7 @@ AK.App = class {
     this.tab = 'board';
     this.undoStack = [];
     this.redoStack = [];
-    this.project = this.load() || AK.demoProject();
+    this.project = (/demo/.test(location.search) && AK.demoProject()) || this.load() || AK.emptyProject();
     this.editor = new AK.Editor(document.getElementById('board'), this);
     this.schView = new AK.SchView(document.getElementById('sch'), this);
     this.buildPalette();
@@ -22,12 +22,14 @@ AK.App = class {
   }
 
   // ---------------- состояние ----------------
+  // кэш привязан к объекту проекта: после замены проекта (пример, отмена, открытие файла) он пересчитывается
   netlist() {
-    if (!this.nl) this.nl = AK.buildNetlist(this.project);
+    if (!this.nl || this.nlFor !== this.project) { this.nl = AK.buildNetlist(this.project); this.nlFor = this.project; this.sch = null; }
     return this.nl;
   }
   schematic() {
-    if (!this.sch) this.sch = AK.generateSchematic(this.project, this.netlist());
+    const nl = this.netlist();
+    if (!this.sch) this.sch = AK.generateSchematic(this.project, nl);
     return this.sch;
   }
 
@@ -76,13 +78,17 @@ AK.App = class {
   }
 
   save() {
-    try { localStorage.setItem('autokicad.project.v2', JSON.stringify(this.project)); } catch (e) { /* хранилище недоступно */ }
+    try { localStorage.setItem('autokicad.project.v3', JSON.stringify(this.project)); } catch (e) { /* хранилище недоступно */ }
   }
   load() {
-    if (/demo/.test(location.search)) return null;
     try {
-      const s = localStorage.getItem('autokicad.project.v2');
-      if (!s) return null;
+      let s = localStorage.getItem('autokicad.project.v3');
+      if (!s) {
+        // проект прежней версии переносим, если это не загруженный пример (раньше программа открывалась с примером)
+        s = localStorage.getItem('autokicad.project.v2');
+        const old = s && JSON.parse(s);
+        if (!old || AK.EXAMPLES.some(x => x.name === old.name)) return null;
+      }
       const p = JSON.parse(s);
       return this.validate(p) ? p : null;
     } catch (e) { return null; }
@@ -123,7 +129,8 @@ AK.App = class {
     const pal = document.getElementById('palette');
     const cats = {};
     Object.values(AK.LIB).forEach(d => { if (!d.fromLibrary) (cats[d.cat] = cats[d.cat] || []).push(d); });
-    let html = '<div class="pal-title">Компоненты</div><div class="pal-help">Перетащите на поле или кликните</div>';
+    let html = '<div class="pal-title">Компоненты</div><div class="pal-help">Перетащите на поле или кликните</div>' +
+      '<input id="palFilter" class="pal-filter" type="search" placeholder="Фильтр: резистор, LED, 555…">';
     const libOk = AK.EE.available();
     html += `<div class="pal-cat">Библиотека EasyEDA / LCSC</div>
       <form class="ee-search" id="eeSearch"><input id="eeQuery" placeholder="NE555, 10k 0603, C25804…" ${libOk ? '' : 'disabled'}><button ${libOk ? '' : 'disabled'}>Найти</button></form>
@@ -132,7 +139,7 @@ AK.App = class {
       <div class="ee-attr">Источник: JLCEDA/EasyEDA Official Library · <a href="https://lceda.cn/" target="_blank" rel="noopener">lceda.cn</a> · <a href="https://easyeda.com" target="_blank" rel="noopener">easyeda.com</a></div>
       <div id="palProject"></div>`;
     Object.entries(cats).forEach(([cat, list]) => {
-      html += `<div class="pal-cat">${AK.util.esc(cat)}</div><div class="pal-grid">`;
+      html += `<div class="pal-cat" data-cat="${AK.util.esc(cat)}">${AK.util.esc(cat)}</div><div class="pal-grid" data-cat="${AK.util.esc(cat)}">`;
       list.forEach(d => { html += this.palItem(d); });
       html += '</div>';
     });
@@ -141,6 +148,24 @@ AK.App = class {
     this.palPartsKey = null;
     this.renderProjectParts();
     document.getElementById('eeSearch').addEventListener('submit', e => { e.preventDefault(); this.searchLibrary(document.getElementById('eeQuery').value.trim()); });
+    document.getElementById('palFilter').addEventListener('input', e => this.filterPalette(e.target.value));
+  }
+
+  // фильтр встроенных компонентов по названию, номиналу и корпусу
+  filterPalette(q) {
+    const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const pal = document.getElementById('palette');
+    pal.querySelectorAll('.pal-grid[data-cat]').forEach(g => {
+      let any = false;
+      g.querySelectorAll('.pal-item').forEach(el => {
+        const d = AK.LIB[el.dataset.type];
+        const hay = [d.name, d.value, d.prefix, d.eePackage, d.kicadName, d.cat].join(' ').toLowerCase();
+        el.hidden = !words.every(w => hay.includes(w));
+        any = any || !el.hidden;
+      });
+      g.hidden = !any;
+      g.previousElementSibling.hidden = !any;
+    });
   }
 
   palItem(d) {
@@ -219,9 +244,15 @@ AK.App = class {
     let h = '';
     const sel = this.sel;
     const comp = sel && sel.kind === 'comp' ? this.project.components.find(c => c.id === sel.id) : null;
+    const multi = sel && sel.kind === 'multi' ? this.project.components.filter(c => sel.ids.includes(c.id)) : null;
     const wire = sel && sel.kind === 'wire' ? this.project.wires.find(w => w.id === sel.id) : null;
 
-    if (comp) {
+    if (multi) {
+      h += `<h3>Выделено: ${multi.length}</h3>`;
+      h += `<div class="muted">${e(multi.map(c => AK.LIB[c.type].virtual ? AK.LIB[c.type].name : c.ref).join(', '))}</div>`;
+      h += `<div class="btnrow"><button data-a="rot">⟳ Повернуть <kbd>R</kbd></button><button data-a="dup">Копия <kbd>Ctrl+D</kbd></button><button data-a="del" class="danger">Удалить <kbd>Del</kbd></button></div>`;
+      h += '<div class="muted small">Перетащите любой из выделенных — сдвинется вся группа. Стрелки — сдвиг на 0.1" (<kbd>Shift</kbd> — на 0.5"). <kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd> — копировать и вставить.</div>';
+    } else if (comp) {
       const d = AK.LIB[comp.type];
       h += `<h3>${e(d.name)}</h3>`;
       if (!d.virtual) {
@@ -278,8 +309,9 @@ AK.App = class {
         <li>Отверстия одной полоски (a–e или f–j в столбце, шины + и −) соединены внутри платы, как у настоящей.</li>
         <li>Перемычка: потяните от отверстия или вывода к другому отверстию.</li>
         <li>Схема строится сама — справа в режиме <b>«Монтаж + схема»</b> или на вкладке <b>«Схема»</b>.</li>
-        <li>Экспортируйте в KiCad или EasyEDA.</li></ol>
-        <div class="muted small"><kbd>R</kbd> поворот · <kbd>Del</kbd> удалить · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> отмена/повтор · колесо — масштаб · перетаскивание пустого места — сдвиг · <kbd>Shift</kbd>+клик при установке — поставить несколько</div>`;
+        <li>Экспортируйте в KiCad или EasyEDA. Готовые схемы — в меню <b>«Примеры»</b>.</li></ol>
+        <div class="muted small"><kbd>R</kbd> поворот · <kbd>Del</kbd> удалить · <kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd> / <kbd>Ctrl+X</kbd> копировать / вставить / вырезать · <kbd>Ctrl+D</kbd> копия · <kbd>Ctrl+A</kbd> выделить всё · стрелки — сдвиг · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> отмена/повтор<br>
+        Рамка левой кнопкой по пустому месту — выделение (<kbd>Shift</kbd> или <kbd>Ctrl</kbd> — добавить), <kbd>Ctrl</kbd>+клик — добавить/убрать компонент · правая или средняя кнопка — сдвиг поля · колесо — масштаб · <kbd>Shift</kbd>+клик при установке — поставить несколько</div>`;
     }
     el.innerHTML = h;
 
@@ -323,6 +355,17 @@ AK.App = class {
     this.changed();
   }
 
+  loadExample(id) {
+    const ex = AK.EXAMPLES.find(x => x.id === id);
+    if (!ex) return;
+    this.checkpoint();
+    this.project = ex.build();
+    this.select(null);
+    this.changed();
+    this.editor.fit();
+    this.toast(`Пример «${ex.name}» загружен. Вернуть прежний проект — Ctrl+Z`);
+  }
+
   // ---------------- UI ----------------
   hint(text) {
     const h = document.getElementById('hint');
@@ -361,6 +404,32 @@ AK.App = class {
     if (kind === 'easyeda') { AK.util.download(base + '_easyeda.json', AK.exportEasyEDA(this.project, m), 'application/json'); this.toast('Исходник EasyEDA сохранён (.json)'); }
     if (kind === 'svg') { AK.util.download(base + '_schematic.svg', AK.schematicStandaloneSVG(m, this.project.name), 'image/svg+xml'); this.toast('Схема сохранена как SVG'); }
     if (kind === 'project') { AK.util.download(base + '.akc.json', JSON.stringify(this.project, null, 1), 'application/json'); this.toast('Проект сохранён'); }
+    if (kind === 'bom') { AK.util.download(base + '_BOM.csv', AK.bomCSV(this.project), 'text/csv;charset=utf-8'); this.toast('Перечень элементов сохранён (.csv)'); }
+    if (kind === 'png') {
+      AK.util.svgToPng(AK.schematicStandaloneSVG(m, this.project.name), 2)
+        .then(blob => { AK.util.download(base + '_schematic.png', blob); this.toast('Схема сохранена как PNG'); })
+        .catch(err => this.toast('Не удалось сохранить PNG: ' + err.message));
+    }
+    if (kind === 'print') this.printSchematic(m);
+  }
+
+  // печать схемы; в диалоге печати можно выбрать «Сохранить как PDF»
+  printSchematic(m) {
+    const e = AK.util.esc, title = e(this.project.name || 'Схема');
+    const svg = AK.schematicStandaloneSVG(m, this.project.name).replace(/^<\?xml[^>]*>/, '');
+    const f = document.createElement('iframe');
+    f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    document.body.appendChild(f);
+    const doc = f.contentDocument;
+    doc.open();
+    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>` +
+      '<style>@page{size:A4 landscape;margin:10mm}html,body{margin:0}svg{width:100%;height:auto;max-height:180mm}h1{font:600 14px Arial,sans-serif;margin:0 0 6px}</style></head>' +
+      `<body><h1>${title}</h1>${svg}</body></html>`);
+    doc.close();
+    setTimeout(() => {
+      try { f.contentWindow.focus(); f.contentWindow.print(); } catch (err) { this.toast('Печать недоступна: ' + err.message); }
+      setTimeout(() => f.remove(), 1000);
+    }, 200);
   }
 
   openFile(file) {
@@ -400,13 +469,11 @@ AK.App = class {
       this.select(null);
       this.changed();
     });
-    $('btnDemo').addEventListener('click', () => {
-      this.checkpoint();
-      this.project = AK.demoProject();
-      this.select(null);
-      this.changed();
-      this.editor.fit();
-    });
+    $('examplesMenu').innerHTML = AK.EXAMPLES.map(x => `<button data-example="${x.id}"><b>${AK.util.esc(x.name)}</b><small>${AK.util.esc(x.desc)}</small></button>`).join('');
+    document.querySelectorAll('[data-example]').forEach(b => b.addEventListener('click', () => {
+      this.loadExample(b.dataset.example);
+      b.closest('.dropdown').classList.remove('open');
+    }));
     $('btnOpen').addEventListener('click', () => $('fileInput').click());
     $('fileInput').addEventListener('change', e => { if (e.target.files[0]) this.openFile(e.target.files[0]); e.target.value = ''; });
     $('btnSave').addEventListener('click', () => this.exportAs('project'));
@@ -414,9 +481,13 @@ AK.App = class {
       this.exportAs(b.dataset.export);
       b.closest('.dropdown').classList.remove('open');
     }));
-    const dd = document.querySelector('.dropdown');
-    $('btnExport').addEventListener('click', e => { e.stopPropagation(); dd.classList.toggle('open'); });
-    document.addEventListener('click', e => { if (!dd.contains(e.target)) dd.classList.remove('open'); });
+    const dds = [...document.querySelectorAll('.dropdown')];
+    dds.forEach(dd => dd.querySelector(':scope > button').addEventListener('click', e => {
+      e.stopPropagation();
+      dds.forEach(o => { if (o !== dd) o.classList.remove('open'); });
+      dd.classList.toggle('open');
+    }));
+    document.addEventListener('click', e => dds.forEach(dd => { if (!dd.contains(e.target)) dd.classList.remove('open'); }));
 
     const view = () => (this.tab === 'sch' ? this.schView : this.editor);
     $('zoomIn').addEventListener('click', () => view().zoomBy(1.25));
@@ -430,7 +501,14 @@ AK.App = class {
       if ((e.ctrlKey || e.metaKey) && (k === 'y' || k === 'н')) { e.preventDefault(); this.redo(); return; }
       if ((e.ctrlKey || e.metaKey) && (k === 's' || k === 'ы')) { e.preventDefault(); this.exportAs('project'); return; }
       if (this.tab === 'sch') return;
-      if ((e.ctrlKey || e.metaKey) && (k === 'd' || k === 'в')) { e.preventDefault(); this.editor.duplicateSelection(); return; }
+      const ed = this.editor, ctrl = e.ctrlKey || e.metaKey;
+      if (ctrl && (k === 'd' || k === 'в')) { e.preventDefault(); ed.duplicateSelection(); return; }
+      if (ctrl && (k === 'a' || k === 'ф')) { e.preventDefault(); ed.selectAll(); return; }
+      if (ctrl && (k === 'c' || k === 'с')) { if (ed.copySelection()) { e.preventDefault(); this.toast('Скопировано'); } return; }
+      if (ctrl && (k === 'x' || k === 'ч')) { if (ed.copySelection()) { e.preventDefault(); ed.deleteSelection(); } return; }
+      if (ctrl && (k === 'v' || k === 'м')) { e.preventDefault(); ed.paste(); return; }
+      const arrows = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] };
+      if (arrows[k]) { e.preventDefault(); const st = e.shiftKey ? 50 : 10; ed.nudge(arrows[k][0] * st, arrows[k][1] * st); return; }
       if (k === 'escape') { if (!this.editor.cancel()) { this.select(null); this.editor.render(); } return; }
       if (k === 'delete' || k === 'backspace') { e.preventDefault(); this.editor.deleteSelection(); return; }
       if (k === 'r' || k === 'к') { this.editor.rotateSelection(); return; }
@@ -446,36 +524,21 @@ AK.emptyProject = function () {
   return { version: 1, name: 'Новый проект', components: [{ id: 'bb', type: 'breadboard', ref: 'BB1', value: '', x: 300, y: 250, rot: 0, props: {} }], wires: [] };
 };
 
-// Пример: мигалка на NE555, собранная на макетной плате.
-// Ножки стоят в отверстиях; провода — только перемычки между полосками.
-AK.demoProject = function () {
-  const C = (id, type, ref, value, x, y, rot, props) => ({ id, type, ref, value, x, y, rot: rot || 0, props: props || {} });
-  const comps = [
-    C('bb', 'breadboard', 'BB1', '', 300, 250),
-    C('bt1', 'battery', 'BT1', '9V', 80, 200, 90),
-    C('u1', 'ne555', 'U1', 'NE555', 305, 255),         // выводы 8,7,6,5 — e14…e17; 1,2,3,4 — f14…f17
-    C('r1', 'resistor', 'R1', '1k', 260, 190, 90),     // шина + → c11
-    C('r2', 'resistor', 'R2', '10k', 260, 270, 90),    // e11 → i11, через канавку
-    C('c1', 'electrolytic', 'C1', '10u', 320, 180),    // + a16 (THR), − a18
-    C('r3', 'resistor', 'R3', '330', 340, 300),        // i16 (Q) → i22
-    C('d1', 'led', 'D1', 'LED', 380, 250, 0, { color: 'red' }), // анод f22, катод f24
-  ];
-  const RED = '#e53935', BLK = '#212121', BLU = '#1e88e5', GRN = '#43a047';
-  const W = (id, fc, fp, tc, tp, color, points) => ({ id, from: { c: fc, p: fp }, to: { c: tc, p: tp }, points: points || [], color, net: '' });
-  const J = (id, a, b, color, points) => W(id, 'bb', a, 'bb', b, color, points);
-  const wires = [
-    W('w1', 'bt1', '1', 'bb', 'TP1', RED),
-    W('w2', 'bt1', '2', 'bb', 'TN1', BLK, [[100, 240], [100, 170]]),
-    J('w3', 'TP29', 'BP29', RED, [[495, 160], [495, 350]]),
-    J('w4', 'TN29', 'BN29', BLK, [[485, 170], [485, 340]]),
-    J('w5', 'a14', 'TP14', RED),   // VCC (8)
-    J('w6', 'j17', 'BP17', RED),   // R (4)
-    J('w7', 'j14', 'BN14', BLK),   // GND (1)
-    J('w8', 'd15', 'd11', BLU),    // DIS (7) → R1, R2
-    J('w9', 'd16', 'g15', GRN),    // THR (6) ↔ TR (2), над корпусом
-    J('w10', 'j11', 'h15', GRN),   // R2 → TR (2)
-    J('w11', 'b18', 'TN20', BLK),  // C1 − → GND
-    J('w12', 'j24', 'BN25', BLK),  // катод LED → GND
-  ];
-  return { version: 1, name: 'Мигалка на NE555', components: comps, wires };
+// Перечень элементов (BOM), как в EasyEDA: одинаковые детали — одной строкой. Разделитель «;» — для Excel.
+AK.bomCSV = function (project) {
+  const rows = new Map();
+  project.components.forEach(c => {
+    const d = AK.LIB[c.type];
+    if (d.virtual) return;
+    const value = c.value || d.value;
+    const key = [c.type, value].join('|');
+    if (!rows.has(key)) rows.set(key, { refs: [], value, name: d.name, pkg: d.eePackage || '', fp: d.footprint || '', lcsc: d.lcsc || '' });
+    rows.get(key).refs.push(c.ref);
+  });
+  const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true });
+  const q = s => '"' + String(s).replace(/"/g, '""') + '"';
+  const out = [['№', 'Обозначения', 'Номинал', 'Наименование', 'Корпус', 'Посадочное место KiCad', 'Кол-во', 'LCSC'].map(q).join(';')];
+  [...rows.values()].sort((a, b) => natural(a.refs.sort(natural)[0], b.refs.sort(natural)[0]))
+    .forEach((r, i) => out.push([i + 1, r.refs.join(', '), r.value, r.name, r.pkg, r.fp, r.refs.length, r.lcsc].map(q).join(';')));
+  return '﻿' + out.join('\r\n') + '\r\n';
 };

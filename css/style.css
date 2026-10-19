@@ -181,3 +181,10 @@ table.pins td:first-child { color: var(--muted); width: 28px; }
   .palette { width: 150px; }
   .pal-grid { grid-template-columns: 1fr; }
 }
+
+/* ---------- фильтр палитры, рамка выделения, меню примеров ---------- */
+.pal-filter { width: 100%; box-sizing: border-box; font: inherit; font-size: 12px; padding: 5px 7px; margin-bottom: 4px; border: 1px solid var(--line); border-radius: 6px; }
+.pal-item[hidden], .pal-grid[hidden], .pal-cat[hidden] { display: none !important; }
+.selrect { fill: rgba(37, 99, 235, .08); stroke: var(--accent); stroke-width: .8; stroke-dasharray: 4 3; pointer-events: none; }
+.dropdown .menu.left { right: auto; left: 0; }
+.dropdown .menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }

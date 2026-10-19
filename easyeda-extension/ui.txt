@@ -189,6 +189,13 @@ table.pins td:first-child { color: var(--muted); width: 28px; }
   .pal-grid { grid-template-columns: 1fr; }
 }
 
+/* ---------- фильтр палитры, рамка выделения, меню примеров ---------- */
+.pal-filter { width: 100%; box-sizing: border-box; font: inherit; font-size: 12px; padding: 5px 7px; margin-bottom: 4px; border: 1px solid var(--line); border-radius: 6px; }
+.pal-item[hidden], .pal-grid[hidden], .pal-cat[hidden] { display: none !important; }
+.selrect { fill: rgba(37, 99, 235, .08); stroke: var(--accent); stroke-width: .8; stroke-dasharray: 4 3; pointer-events: none; }
+.dropdown .menu.left { right: auto; left: 0; }
+.dropdown .menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+
 </style>
 </head>
 <body>
@@ -203,7 +210,10 @@ table.pins td:first-child { color: var(--muted); width: 28px; }
       <button id="btnNew">Новый</button>
       <button id="btnOpen">Открыть</button>
       <button id="btnSave">Сохранить</button>
-      <button id="btnDemo">Пример</button>
+      <div class="dropdown">
+        <button id="btnExamples">Примеры ▾</button>
+        <div class="menu" id="examplesMenu"></div>
+      </div>
       <div class="dropdown">
         <button id="btnExport" class="primary">Экспорт ▾</button>
         <div class="menu">
@@ -211,7 +221,12 @@ table.pins td:first-child { color: var(--muted); width: 28px; }
           <button data-export="kicad"><b>KiCad</b> — только схема (.kicad_sch)<small>Открывается в KiCad 8–10, импортируется в EasyEDA Pro</small></button>
           <button data-export="easyeda"><b>EasyEDA Standard</b> — исходник (.json)<small>Документ → Открыть → EasyEDA Source</small></button>
           <button data-export="net"><b>Netlist</b> KiCad (.net)<small>Список соединений для платы</small></button>
-          <button data-export="svg"><b>SVG</b> — картинка схемы</button>
+          <button data-export="bom"><b>BOM</b> — перечень элементов (.csv)<small>Одинаковые детали одной строкой, с корпусом и номером LCSC. Открывается в Excel</small></button>
+          <hr>
+          <button data-export="png"><b>PNG</b> — картинка схемы</button>
+          <button data-export="svg"><b>SVG</b> — картинка схемы (векторная)</button>
+          <button data-export="print"><b>Печать / PDF</b><small>В окне печати выберите «Сохранить как PDF»</small></button>
+          <hr>
           <button data-export="project"><b>Проект</b> AutoKiCad (.json)</button>
         </div>
       </div>
@@ -353,7 +368,28 @@ AK.util = (function () {
     return out;
   }
 
-  return { uid, uuid, parseValue, fmt, download, esc, rotPt, zip };
+  // SVG-текст → PNG (Blob); scale — во сколько раз крупнее размеров SVG
+  function svgToPng(svgText, scale) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(new Blob([svgText], { type: 'image/svg+xml' }));
+      const img = new Image();
+      img.onload = () => {
+        const cv = document.createElement('canvas');
+        cv.width = Math.round(img.naturalWidth * (scale || 1));
+        cv.height = Math.round(img.naturalHeight * (scale || 1));
+        const g = cv.getContext('2d');
+        g.fillStyle = '#fff';
+        g.fillRect(0, 0, cv.width, cv.height);
+        g.drawImage(img, 0, 0, cv.width, cv.height);
+        URL.revokeObjectURL(url);
+        cv.toBlob(b => (b ? resolve(b) : reject(new Error('не удалось создать картинку'))), 'image/png');
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('SVG не загрузился')); };
+      img.src = url;
+    });
+  }
+
+  return { uid, uuid, parseValue, fmt, download, esc, rotPt, zip, svgToPng };
 })();
 
 </script>
@@ -638,6 +674,187 @@ AK.LIB = (function () {
     },
   };
 
+  // корпус TO-92: три ножки в ряд с шагом 0.1"
+  function to92(c) {
+    return leg(-10, 4, -10, 20) + leg(0, 4, 0, 20) + leg(10, 4, 10, 20) +
+      `<path d="M -12 4 L -12 -10 A 12 12 0 0 1 12 -10 L 12 4 Z" fill="#262626" stroke="#000"/>` +
+      txt(0, -6, c.value, 5, '#ddd');
+  }
+  const pinLabels = (names, y) => names.map((n, i) => txt(-10 + i * 10, y, n, 5, '#667')).join('');
+
+  defs.pnp = {
+    name: 'PNP транзистор', prefix: 'Q', cat: 'Полупроводники', value: 'BC557', kicadName: 'PNP',
+    footprint: 'Package_TO_SOT_THT:TO-92_Inline', eePackage: 'TO-92',
+    pinNames: { 1: 'C', 2: 'B', 3: 'E' },
+    visual: {
+      box: [-13, -23, 26, 43],
+      hit: [-13, -23, 26, 28],
+      pins: { 1: [-10, 20], 2: [0, 20], 3: [10, 20] },
+      draw(c) { return to92(c) + pinLabels(['C', 'B', 'E'], 26); },
+    },
+    sym: {
+      gfx: [CIRC(0.4, 0, 1.2), L([-0.4, -0.7], [-0.4, 0.7]), L([-0.4, -0.35], [1, -1]), L([-0.4, 0.35], [1, 1]), arrowHead(0.748, -0.883, 0.048, -0.558, 0.35)],
+      pins: { 3: pin(1, -2, 'D', 1), 2: pin(-2, 0, 'R', 1.6), 1: pin(1, 2, 'U', 1) },
+      ref: [1.8, -0.3, 'start'], val: [1.8, 0.6, 'start'],
+    },
+  };
+
+  // корпус TO-220: металлический фланец сверху, три ножки с шагом 0.1"
+  function to220(c) {
+    return leg(-10, 2, -10, 20) + leg(0, 2, 0, 20) + leg(10, 2, 10, 20) +
+      `<rect x="-15" y="-32" width="30" height="16" rx="1.5" fill="#b0b5ba" stroke="#7d848b"/>` +
+      `<circle cx="0" cy="-25" r="3.6" fill="#f4f2ec" stroke="#7d848b"/>` +
+      `<rect x="-15" y="-17" width="30" height="19" rx="1" fill="#262626" stroke="#000"/>` +
+      txt(0, -8, c.value, 5, '#ddd');
+  }
+
+  defs.nmos = {
+    name: 'N-MOSFET', prefix: 'Q', cat: 'Полупроводники', value: 'IRLZ44N', kicadName: 'NMOS',
+    footprint: 'Package_TO_SOT_THT:TO-220-3_Vertical', eePackage: 'TO-220-3',
+    pinNames: { 1: 'G', 2: 'D', 3: 'S' },
+    visual: {
+      box: [-15, -32, 30, 58],
+      hit: [-15, -32, 30, 34],
+      pins: { 1: [-10, 20], 2: [0, 20], 3: [10, 20] },
+      draw(c) { return to220(c) + pinLabels(['G', 'D', 'S'], 26); },
+    },
+    sym: {
+      gfx: [L([-0.4, -0.7], [-0.4, 0.7]), L([-0.1, -0.8], [-0.1, -0.4]), L([-0.1, -0.2], [-0.1, 0.2]), L([-0.1, 0.4], [-0.1, 0.8]),
+        L([-0.1, -0.6], [1, -0.6], [1, -1]), L([-0.1, 0.6], [1, 0.6], [1, 1]), L([-0.1, 0], [1, 0], [1, 0.6]), arrowHead(0.5, 0, -0.05, 0, 0.35)],
+      pins: { 2: pin(1, -2, 'D', 1), 1: pin(-2, 0, 'R', 1.6), 3: pin(1, 2, 'U', 1) },
+      ref: [1.5, -0.3, 'start'], val: [1.5, 0.6, 'start'],
+    },
+  };
+
+  defs.zener = {
+    name: 'Стабилитрон', prefix: 'D', cat: 'Полупроводники', value: 'BZX55C5V1', kicadName: 'D_Zener',
+    footprint: 'Diode_THT:D_DO-35_SOD27_P10.16mm_Horizontal', eePackage: 'DO-35',
+    pinNames: { 1: 'K', 2: 'A' },
+    visual: {
+      box: [-30, -6, 60, 12],
+      hit: [-12, -6, 24, 12],
+      pins: { 2: [-30, 0], 1: [30, 0] },
+      draw() {
+        return leg(-30, 0, -12, 0) + leg(12, 0, 30, 0) +
+          `<rect x="-12" y="-4.5" width="24" height="9" rx="3" fill="#f2a65a" fill-opacity=".9" stroke="#b5651d"/>` +
+          `<rect x="6" y="-4.5" width="3" height="9" fill="#222"/>`;
+      },
+    },
+    sym: {
+      gfx: [POLY([-0.5, -0.6], [0.5, 0], [-0.5, 0.6]), L([0.7, -0.75], [0.5, -0.6], [0.5, 0.6], [0.3, 0.75]), L([-0.5, 0], [0.5, 0])],
+      pins: { 2: pin(-2, 0, 'R', 1.5), 1: pin(2, 0, 'L', 1.5) },
+      ref: [0, -1.1, 'middle'], val: [0, 1.2, 'middle'],
+    },
+  };
+
+  defs.inductor = {
+    name: 'Катушка индуктивности', prefix: 'L', cat: 'Пассивные', value: '10uH', kicadName: 'L',
+    footprint: 'Inductor_THT:L_Axial_L5.3mm_D2.2mm_P10.16mm_Horizontal_Vishay_IM-1', eePackage: 'AXIAL-0.4',
+    visual: {
+      box: [-30, -7, 60, 14],
+      hit: [-16, -7, 32, 14],
+      pins: { 1: [-30, 0], 2: [30, 0] },
+      draw(c) {
+        const b = resistorBands(String(c.value).replace(/H$/i, '').replace(/u$/, '') || '10');
+        return leg(-30, 0, -15, 0) + leg(15, 0, 30, 0) +
+          `<rect x="-16" y="-6" width="32" height="12" rx="5" fill="#5f9e6e" stroke="#3b6b47"/>` +
+          `<rect x="-9" y="-6" width="3" height="12" fill="${b[0]}"/><rect x="-3" y="-6" width="3" height="12" fill="${b[1]}"/>` +
+          `<rect x="3" y="-6" width="3" height="12" fill="${b[2]}"/>`;
+      },
+    },
+    sym: {
+      gfx: [L(...arc(-0.75, 0, 0.25, 180, 360, 6)), L(...arc(-0.25, 0, 0.25, 180, 360, 6)), L(...arc(0.25, 0, 0.25, 180, 360, 6)), L(...arc(0.75, 0, 0.25, 180, 360, 6))],
+      pins: { 1: pin(-2, 0, 'R', 1), 2: pin(2, 0, 'L', 1) },
+      ref: [0, -0.9, 'middle'], val: [0, 0.9, 'middle'],
+    },
+  };
+
+  defs.crystal = {
+    name: 'Кварцевый резонатор', prefix: 'Y', cat: 'Пассивные', value: '16MHz', kicadName: 'Crystal',
+    footprint: 'Crystal:Crystal_HC49-4H_Vertical', eePackage: 'HC-49S',
+    visual: {
+      box: [-16, -12, 32, 32],
+      hit: [-16, -12, 32, 18],
+      pins: { 1: [-10, 20], 2: [10, 20] },
+      draw(c) {
+        return leg(-10, 6, -10, 20) + leg(10, 6, 10, 20) +
+          `<rect x="-16" y="-12" width="32" height="18" rx="9" fill="#cfd4d9" stroke="#8a9199"/>` +
+          `<rect x="-12" y="-9" width="24" height="12" rx="6" fill="none" stroke="#a7aeb5"/>` + txt(0, -3, c.value, 5, '#444');
+      },
+    },
+    sym: {
+      gfx: [RECT(-0.25, -0.6, 0.25, 0.6), L([-0.5, -0.7], [-0.5, 0.7]), L([0.5, -0.7], [0.5, 0.7])],
+      pins: { 1: pin(-2, 0, 'R', 1.5), 2: pin(2, 0, 'L', 1.5) },
+      ref: [0, -1.2, 'middle'], val: [0, 1.3, 'middle'],
+    },
+  };
+
+  defs.ldr = {
+    name: 'Фоторезистор', prefix: 'R', cat: 'Датчики', value: 'GL5528', kicadName: 'R_Photo',
+    footprint: 'OptoDevice:R_LDR_5.1x4.3mm_P3.4mm_Vertical', eePackage: 'LDR-5MM',
+    visual: {
+      box: [-12, -16, 24, 36],
+      hit: [-12, -16, 24, 22],
+      pins: { 1: [-10, 20], 2: [10, 20] },
+      draw() {
+        return leg(-6, 4, -10, 20) + leg(6, 4, 10, 20) +
+          `<circle cx="0" cy="-5" r="11" fill="#f5e6c8" stroke="#a08560"/>` +
+          `<path d="M -7 -10 h 12 v 3 h -10 v 3 h 10 v 3 h -12" fill="none" stroke="#c0392b" stroke-width="1.6"/>`;
+      },
+    },
+    sym: {
+      gfx: [RECT(-1, -0.4, 1, 0.4), L([-0.8, -1.4], [-0.3, -0.7]), arrowHead(-0.8, -1.4, -0.3, -0.7, 0.25), L([-0.2, -1.4], [0.3, -0.7]), arrowHead(-0.2, -1.4, 0.3, -0.7, 0.25)],
+      pins: { 1: pin(-2, 0, 'R', 1), 2: pin(2, 0, 'L', 1) },
+      ref: [0, -1.8, 'middle'], val: [0, 1.1, 'middle'],
+    },
+  };
+
+  defs.spdt = {
+    name: 'Переключатель', prefix: 'SW', cat: 'Управление', value: 'SPDT', kicadName: 'SW_SPDT',
+    footprint: 'Button_Switch_THT:SW_Slide_SPDT_Straight_CK_OS102011MS2Q', eePackage: 'SW-SLIDE-3P',
+    pinNames: { 1: 'A', 2: 'COM', 3: 'B' },
+    visual: {
+      box: [-17, -12, 34, 32],
+      hit: [-17, -12, 34, 16],
+      pins: { 1: [-10, 20], 2: [0, 20], 3: [10, 20] },
+      draw(c) {
+        const on = c.props && c.props.pos === 'b';
+        return leg(-10, 4, -10, 20) + leg(0, 4, 0, 20) + leg(10, 4, 10, 20) +
+          `<rect x="-17" y="-12" width="34" height="16" rx="2" fill="#2f3337" stroke="#111"/>` +
+          `<rect x="-12" y="-8" width="24" height="8" rx="1" fill="#15181b"/>` +
+          `<rect x="${on ? 1 : -11}" y="-10" width="10" height="12" rx="1.5" fill="#eceff1" stroke="#90a4ae"/>`;
+      },
+    },
+    props: [{ key: 'pos', label: 'Положение (только вид)', options: { a: 'COM — A', b: 'COM — B' }, def: 'a' }],
+    sym: {
+      gfx: [CIRC(-0.9, 0, 0.12), CIRC(0.9, -1, 0.12), CIRC(0.9, 1, 0.12), L([-0.8, -0.05], [0.8, -0.85])],
+      pins: { 2: pin(-2, 0, 'R', 1), 1: pin(2, -1, 'L', 1), 3: pin(2, 1, 'L', 1) },
+      ref: [0, -1.8, 'middle'], val: [0, 1.9, 'middle'],
+    },
+  };
+
+  defs.motor = {
+    name: 'Мотор', prefix: 'M', cat: 'Управление', value: 'Motor', kicadName: 'Motor_DC',
+    footprint: 'Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical', eePackage: 'HDR-2P',
+    pinNames: { 1: '+', 2: '−' },
+    visual: {
+      box: [-18, -32, 36, 52],
+      hit: [-18, -32, 36, 38],
+      pins: { 1: [-10, 20], 2: [10, 20] },
+      draw() {
+        return leg(-10, 4, -10, 20) + leg(10, 4, 10, 20) +
+          `<circle cx="0" cy="-13" r="17" fill="#b0b5ba" stroke="#6d747b"/>` +
+          `<circle cx="0" cy="-13" r="4" fill="#e8eaec" stroke="#6d747b"/>` + txt(0, -1, 'M', 7, '#333', 'font-weight="700"') +
+          txt(-14, 13, '+', 8, '#c62828', 'font-weight="700"');
+      },
+    },
+    sym: {
+      gfx: [CIRC(0, 0, 0.9), TXT(0, 0, 'M', 0.9)],
+      pins: { 1: pin(0, -2, 'D', 1.1), 2: pin(0, 2, 'U', 1.1) },
+      ref: [1.2, -0.3, 'start'], val: [1.2, 0.6, 'start'],
+    },
+  };
+
   defs.button = {
     name: 'Кнопка', prefix: 'SW', cat: 'Управление', value: 'BTN', kicadName: 'SW_Push',
     footprint: 'Button_Switch_THT:SW_PUSH_6mm', eePackage: 'KEY-6X6',
@@ -756,28 +973,69 @@ AK.LIB = (function () {
     };
   }
   defs.header2 = header(2);
+  defs.header3 = header(3);
   defs.header4 = header(4);
+  defs.header6 = header(6);
+  defs.header8 = header(8);
+
+  // корпус DIP-8: ряды выводов через 0.3" — встаёт поперёк канавки макетной платы
+  const DIP8 = () => ({
+    box: [-22, -17, 44, 34],
+    hit: [-22, -11, 44, 22], // область захвата — только корпус, отверстия у ножек остаются доступны
+    pins: { 1: [-15, 15], 2: [-5, 15], 3: [5, 15], 4: [15, 15], 5: [15, -15], 6: [5, -15], 7: [-5, -15], 8: [-15, -15] },
+    draw(c) {
+      let s = '';
+      [-15, -5, 5, 15].forEach(x => { s += `<rect x="${x - 2}" y="-15" width="4" height="30" fill="#b9bec4"/>`; });
+      return s + `<rect x="-22" y="-11" width="44" height="22" rx="2" fill="#2b2b2b" stroke="#000"/>` +
+        `<path d="M -22 -5 A 5 5 0 0 1 -22 5" fill="#555"/><circle cx="-16" cy="6" r="1.8" fill="#555"/>` +
+        txt(2, 0, c.value, 7, '#ddd', 'font-weight="600"');
+    },
+  });
 
   defs.ne555 = {
     name: 'Таймер NE555', prefix: 'U', cat: 'Микросхемы', value: 'NE555', kicadName: 'NE555',
     footprint: 'Package_DIP:DIP-8_W7.62mm', eePackage: 'DIP-8',
     pinNames: { 1: 'GND', 2: 'TR', 3: 'Q', 4: 'R', 5: 'CV', 6: 'THR', 7: 'DIS', 8: 'VCC' },
-    visual: {
-      // ряды выводов DIP через 0.3" — корпус встаёт поперёк канавки макетной платы
-      box: [-22, -17, 44, 34],
-      hit: [-22, -11, 44, 22], // область захвата — только корпус, отверстия у ножек остаются доступны
-      pins: { 1: [-15, 15], 2: [-5, 15], 3: [5, 15], 4: [15, 15], 5: [15, -15], 6: [5, -15], 7: [-5, -15], 8: [-15, -15] },
-      draw(c) {
-        let s = '';
-        [-15, -5, 5, 15].forEach(x => { s += `<rect x="${x - 2}" y="-15" width="4" height="30" fill="#b9bec4"/>`; });
-        return s + `<rect x="-22" y="-11" width="44" height="22" rx="2" fill="#2b2b2b" stroke="#000"/>` +
-          `<path d="M -22 -5 A 5 5 0 0 1 -22 5" fill="#555"/><circle cx="-16" cy="6" r="1.8" fill="#555"/>` +
-          txt(2, 0, c.value, 7, '#ddd', 'font-weight="600"');
-      },
-    },
+    visual: DIP8(),
     sym: makeIC(
       [['4', 'R', 'in'], ['2', 'TR', 'in'], ['6', 'THR', 'in'], ['5', 'CV', 'in']],
       [['8', 'VCC', 'pwr'], ['3', 'Q', 'out'], ['7', 'DIS', 'oc'], ['1', 'GND', 'pwr']], 6),
+  };
+
+  defs.lm358 = {
+    name: 'ОУ LM358 (×2)', prefix: 'U', cat: 'Микросхемы', value: 'LM358', kicadName: 'LM358',
+    footprint: 'Package_DIP:DIP-8_W7.62mm', eePackage: 'DIP-8',
+    pinNames: { 1: 'OUTA', 2: '-INA', 3: '+INA', 4: 'GND', 5: '+INB', 6: '-INB', 7: 'OUTB', 8: 'V+' },
+    visual: DIP8(),
+    sym: makeIC(
+      [['3', '+INA', 'in'], ['2', '-INA', 'in'], ['5', '+INB', 'in'], ['6', '-INB', 'in']],
+      [['8', 'V+', 'pwr'], ['1', 'OUTA', 'out'], ['7', 'OUTB', 'out'], ['4', 'GND', 'pwr']], 6),
+  };
+
+  // линейный стабилизатор 78xx: выход становится цепью питания (+5V у 7805, +12V у 7812…)
+  defs.reg78 = {
+    name: 'Стабилизатор 7805', prefix: 'U', cat: 'Питание', value: 'L7805', kicadName: 'L7805',
+    footprint: 'Package_TO_SOT_THT:TO-220-3_Vertical', eePackage: 'TO-220-3',
+    pinNames: { 1: 'IN', 2: 'GND', 3: 'OUT' },
+    pinPower: { 2: 'GND' },
+    pinPowerFn(c) {
+      const m = String(c.value || '').match(/78[LM]?(\d\d)/i);
+      if (!m) return {};
+      const v = m[1] === '33' ? '3V3' : String(+m[1]) + 'V';
+      return { 3: '+' + v };
+    },
+    visual: {
+      box: [-15, -32, 30, 58],
+      hit: [-15, -32, 30, 34],
+      pins: { 1: [-10, 20], 2: [0, 20], 3: [10, 20] },
+      draw(c) { return to220(c) + pinLabels(['I', 'G', 'O'], 26); },
+    },
+    sym: {
+      gfx: [RECT(-2, -1, 2, 1.6, 'body')],
+      pins: { 1: pin(-3, 0, 'R', 1, { name: 'VI', type: 'pwr' }), 3: pin(3, 0, 'L', 1, { name: 'VO' }), 2: pin(0, 3, 'U', 1.4, { name: 'GND', type: 'pwr' }) },
+      ref: [-2, -1.6, 'start'], val: [0.5, 2.6, 'start'],
+      showNames: true,
+    },
   };
 
   // Arduino Nano: номера выводов как в KiCad Module:Arduino_Nano
@@ -887,6 +1145,171 @@ AK.compWorldBox = function (comp) {
   const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
   return { x: comp.x + Math.min(...xs), y: comp.y + Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
 };
+
+</script>
+  <script>
+// ---- js/examples.js ----
+// Примеры проектов (меню «Примеры»). Все собраны на макетной плате:
+// компоненты ставятся ножкой в отверстие по имени (a1…j30, TP/TN/BP/BN — шины), провода — перемычки.
+window.AK = window.AK || {};
+
+(function () {
+  const RED = '#e53935', BLK = '#212121', BLU = '#1e88e5', GRN = '#43a047', YEL = '#fdd835', ORG = '#fb8c00';
+
+  // конструктор проекта: плата BB1 в (300, 250)
+  function builder(name) {
+    const bb = { id: 'bb', type: 'breadboard', ref: 'BB1', value: '', x: 300, y: 250, rot: 0, props: {} };
+    const P = { version: 1, name, components: [bb], wires: [] };
+    let wn = 0;
+    return {
+      P,
+      // компонент вывод pin (по умолчанию первый) — в отверстие hole
+      put(id, type, ref, value, hole, rot, props, pinId) {
+        const d = AK.LIB[type];
+        const p = d.visual.pins[pinId || Object.keys(d.visual.pins)[0]];
+        const [hx, hy] = AK.pinWorld(bb, hole);
+        const [rx, ry] = AK.util.rotPt(p[0], p[1], rot || 0);
+        const c = { id, type, ref, value, x: hx - rx, y: hy - ry, rot: rot || 0, props: props || {} };
+        P.components.push(c);
+        return c;
+      },
+      // компонент вне платы — в точке (x, y)
+      at(id, type, ref, value, x, y, rot, props) {
+        const c = { id, type, ref, value, x, y, rot: rot || 0, props: props || {} };
+        P.components.push(c);
+        return c;
+      },
+      wire(fc, fp, tc, tp, color, points, net) {
+        P.wires.push({ id: 'w' + (++wn), from: { c: fc, p: fp }, to: { c: tc, p: tp }, points: points || [], color, net: net || '' });
+      },
+      // перемычка между отверстиями платы
+      jump(a, b, color, points, net) { this.wire('bb', a, 'bb', b, color, points, net); },
+      // батарея 9V слева, подключена к верхним шинам
+      battery() {
+        this.at('bt1', 'battery', 'BT1', '9V', 80, 200, 90);
+        this.wire('bt1', '1', 'bb', 'TP1', RED);
+        this.wire('bt1', '2', 'bb', 'TN1', BLK, [[100, 240], [100, 170]]);
+      },
+      // верхние шины соединены с нижними (справа)
+      bridge() {
+        this.jump('TP29', 'BP29', RED, [[495, 160], [495, 350]]);
+        this.jump('TN29', 'BN29', BLK, [[485, 170], [485, 340]]);
+      },
+    };
+  }
+
+  // Мигалка на NE555 (выводы 8,7,6,5 — e14…e17; 1,2,3,4 — f14…f17)
+  function blinker() {
+    const b = builder('Мигалка на NE555');
+    b.battery();
+    b.put('u1', 'ne555', 'U1', 'NE555', 'f14');
+    b.put('r1', 'resistor', 'R1', '1k', 'TP11', 90);   // шина + → c11
+    b.put('r2', 'resistor', 'R2', '10k', 'e11', 90);   // e11 → i11, через канавку
+    b.put('c1', 'electrolytic', 'C1', '10u', 'a16');   // + a16 (THR), − a18
+    b.put('r3', 'resistor', 'R3', '330', 'i16');       // i16 (Q) → i22
+    b.put('d1', 'led', 'D1', 'LED', 'f22', 0, { color: 'red' }, '2'); // анод f22, катод f24
+    b.jump('TP29', 'BP29', RED, [[495, 160], [495, 350]]);
+    b.jump('TN29', 'BN29', BLK, [[485, 170], [485, 340]]);
+    b.jump('a14', 'TP14', RED);   // VCC (8)
+    b.jump('j17', 'BP17', RED);   // R (4)
+    b.jump('j14', 'BN14', BLK);   // GND (1)
+    b.jump('d15', 'd11', BLU);    // DIS (7) → R1, R2
+    b.jump('d16', 'g15', GRN);    // THR (6) ↔ TR (2), над корпусом
+    b.jump('j11', 'h15', GRN);    // R2 → TR (2)
+    b.jump('b18', 'TN20', BLK);   // C1 − → GND
+    b.jump('j24', 'BN25', BLK);   // катод LED → GND
+    return b.P;
+  }
+
+  // Светодиод с резистором — самая простая схема
+  function ledBasic() {
+    const b = builder('Светодиод с резистором');
+    b.battery();
+    b.put('r1', 'resistor', 'R1', '1k', 'TP5', 90);                       // шина + → c5
+    b.put('d1', 'led', 'D1', 'LED', 'd5', 180, { color: 'green' }, '2');  // анод d5, катод d3
+    b.jump('b3', 'TN3', BLK);
+    return b.P;
+  }
+
+  // Кнопка включает светодиод через транзистор
+  function transistorSwitch() {
+    const b = builder('Транзисторный ключ с кнопкой');
+    b.battery();
+    b.bridge();
+    b.put('sw1', 'button', 'SW1', 'BTN', 'e11');                           // e11 — e15
+    b.jump('a11', 'TP11', RED);
+    b.put('r1', 'resistor', 'R1', '10k', 'd15', 90);                       // d15 → h15
+    b.put('q1', 'npn', 'Q1', 'BC547', 'f20');                              // C f20, B f21, E f22
+    b.jump('g15', 'g21', GRN);                                             // R1 → база
+    b.jump('j22', 'BN22', BLK);                                            // эмиттер → GND
+    b.put('r2', 'resistor', 'R2', '330', 'h20');                           // коллектор h20 → h26
+    b.put('d1', 'led', 'D1', 'LED', 'i24', 0, { color: 'yellow' }, '2');   // анод i24, катод i26
+    b.jump('j24', 'BP25', RED);                                            // анод → + (BP24 нет: шина идёт группами по 5)
+    return b.P;
+  }
+
+  // Стабилизатор 7805: 9 В с батареи → +5 В на верхней шине, светодиод-индикатор
+  function regulator() {
+    const b = builder('Стабилизатор 5 В на 7805');
+    b.at('bt1', 'battery', 'BT1', '9V', 80, 310, 270);
+    b.wire('bt1', '1', 'bb', 'BP1', RED);
+    b.wire('bt1', '2', 'bb', 'BN1', BLK, [[100, 270], [100, 340]]);
+    b.put('u1', 'reg78', 'U1', 'L7805', 'f13');                            // IN f13, GND f14, OUT f15
+    b.jump('j13', 'BP13', RED);                                            // вход ← 9 В
+    b.jump('j14', 'BN14', BLK);
+    b.jump('h15', 'TP17', ORG, [[315, 290], [315, 160]], '+5V');           // выход → верхняя шина +5V
+    b.jump('TN29', 'BN29', BLK, [[485, 170], [485, 340]]);
+    b.put('c1', 'electrolytic', 'C1', '10u', 'a22', 180);                  // + a22, − a20
+    b.jump('b22', 'TP22', RED);
+    b.jump('b20', 'TN20', BLK);
+    b.put('r1', 'resistor', 'R1', '330', 'TP5', 90);
+    b.put('d1', 'led', 'D1', 'LED', 'd5', 180, { color: 'blue' }, '2');
+    b.jump('b3', 'TN3', BLK);
+    return b.P;
+  }
+
+  // Arduino Nano мигает светодиодом на D13
+  function nanoBlink() {
+    const b = builder('Arduino Nano: мигание D13');
+    b.put('a1', 'nano', 'A1', 'Arduino_Nano', 'g8', 0, {}, '16');          // D13 — g8, верхний ряд выводов — c8…c22
+    b.jump('b19', 'TN19', BLK);                                            // GND Arduino → шина −
+    b.jump('j8', 'j25', GRN);                                              // D13 → R1
+    b.put('r1', 'resistor', 'R1', '330', 'd25', 90, {}, '1');              // d25 → h25
+    b.put('d1', 'led', 'D1', 'LED', 'e25', 0, { color: 'red' }, '2');      // анод e25, катод e27
+    b.jump('d27', 'TN28', BLK, [[430, 230]]);
+    return b.P;
+  }
+
+  // Сумеречный выключатель: стемнело — светодиод загорается
+  function nightLight() {
+    const b = builder('Сумеречный выключатель (фоторезистор)');
+    b.battery();
+    b.bridge();
+    b.put('rv1', 'pot', 'RV1', '10k', 'b5', 180);                          // b5, b4 (движок), b3; корпус вниз
+    b.jump('a5', 'TP5', RED);
+    b.jump('c4', 'c6', GRN);                                               // движок → фоторезистор
+    b.put('r1', 'ldr', 'R1', 'GL5528', 'b8', 180);                         // b8 — b6
+    b.jump('a8', 'TN8', BLK);
+    b.jump('a6', 'g17', BLU, [[210, 185], [340, 185], [340, 280]]);        // середина делителя → база
+    b.put('q1', 'npn', 'Q1', 'BC547', 'f16');                              // C f16, B f17, E f18
+    b.jump('j18', 'BN17', BLK);
+    b.put('r2', 'resistor', 'R2', '330', 'h16');                           // коллектор h16 → h22
+    b.put('d1', 'led', 'D1', 'LED', 'i20', 0, { color: 'white' }, '2');    // анод i20, катод i22
+    b.jump('j20', 'BP20', RED);
+    return b.P;
+  }
+
+  AK.EXAMPLES = [
+    { id: 'led', name: 'Светодиод с резистором', desc: 'Батарея, резистор и светодиод', build: ledBasic },
+    { id: 'blinker', name: 'Мигалка на NE555', desc: 'Таймер в режиме генератора, мигает светодиод', build: blinker },
+    { id: 'switch', name: 'Транзисторный ключ', desc: 'Кнопка включает светодиод через NPN-транзистор', build: transistorSwitch },
+    { id: 'night', name: 'Сумеречный выключатель', desc: 'Фоторезистор и транзистор: в темноте светодиод горит', build: nightLight },
+    { id: 'reg', name: 'Стабилизатор 5 В', desc: '7805 делает +5 В из 9 В батареи', build: regulator },
+    { id: 'nano', name: 'Arduino Nano: Blink', desc: 'Светодиод на выводе D13', build: nanoBlink },
+  ];
+
+  AK.demoProject = blinker;
+})();
 
 </script>
   <script>
@@ -1279,9 +1702,12 @@ AK.buildNetlist = function (project) {
   const plugged = new Set();
   at.forEach(ks => {
     if (ks.length < 2) return;
+    const legs = ks.filter(k => !AK.LIB[comps.get(k.split(':')[0]).type].board).length;
+    // отверстия наложенных друг на друга плат без ножки в них не соединяются
+    if (!legs) return;
     ks.forEach(k => { union(ks[0], k); plugged.add(k); });
     // ножка в пустом отверстии ещё не соединение; две ножки в одной точке — соединение
-    if (ks.filter(k => !AK.LIB[comps.get(k.split(':')[0]).type].board).length > 1) ks.forEach(k => wired.add(k));
+    if (legs > 1) ks.forEach(k => wired.add(k));
   });
 
   // Имена цепей: 3 — задано пользователем на проводе, 2 — источник питания, 1 — подсказка вывода (GND у Arduino и т.п.)
@@ -1723,8 +2149,9 @@ AK.symbolSVG = function (def, comp, showText) {
     const ex = p.x + dx * p.len, ey = p.y + dy * p.len;
     out += `<line class="s-pin" x1="${p.x}" y1="${p.y}" x2="${ex}" y2="${ey}"/>`;
     if (s.showNames && p.name) {
-      const anchor = p.dir === 'R' ? 'start' : 'end';
-      out += `<text class="s-pinname" x="${ex + dx * 0.25}" y="${ey}" text-anchor="${anchor}" dominant-baseline="central">${e(p.name)}</text>`;
+      // у вертикального вывода имя — над/под концом вывода, внутри корпуса
+      const anchor = dy ? 'middle' : p.dir === 'R' ? 'start' : 'end';
+      out += `<text class="s-pinname" x="${ex + dx * 0.25}" y="${ey + dy * 0.4}" text-anchor="${anchor}" dominant-baseline="central">${e(p.name)}</text>`;
     }
     if (s.showNums) {
       out += `<text class="s-pinnum" x="${(p.x + ex) / 2}" y="${p.y - 0.12}" text-anchor="middle">${e(num)}</text>`;
@@ -2182,9 +2609,10 @@ AK.exportEasyEDA = function (project, model, opts) {
       const name = clean(p.name || num);
       const nameVis = s.showNames && p.name ? 1 : 0;
       const numVis = s.showNums ? 1 : 0;
-      const anchor = p.dir === 'R' ? 'start' : 'end';
+      // у вертикального вывода имя — по центру, внутри корпуса
+      const anchor = dy ? 'middle' : p.dir === 'R' ? 'start' : 'end';
       sub.push(`P~show~0~${clean(num)}~${px}~${py}~${ROT[p.dir]}~${id()}~0^^${px}~${py}^^${path}~${PIN}^^` +
-        `${nameVis}~${ex + dx * 3}~${ey + 3}~0~${name}~${anchor}~~~#0000FF^^` +
+        `${nameVis}~${ex + dx * 3}~${ey + 3 + dy * 5}~0~${name}~${anchor}~~~#0000FF^^` +
         `${numVis}~${(px + ex) / 2}~${py - 1}~0~${clean(num)}~middle~~~#0000FF^^0~${ex}~${ey}^^0~M 0 0`);
     });
     const para = d.ee ? libPara(d, c) : [
@@ -2315,15 +2743,17 @@ AK.Editor = class {
       if (!at.has(s)) at.set(s, []);
       at.get(s).push(c.id + ':' + p);
     }));
-    at.forEach(ks => { if (ks.length > 1) ks.forEach(k => connected.add(k)); });
+    const isLeg = k => !AK.LIB[this.comp(k.split(':')[0]).type].board;
+    at.forEach(ks => { if (ks.length > 1 && ks.some(isLeg)) ks.forEach(k => connected.add(k)); });
 
     let comps = '', labels = '', pins = '';
+    const selSet = new Set(this.selIds());
     // макетные платы — под остальными компонентами
     const order = P.components.filter(c => AK.LIB[c.type].board).concat(P.components.filter(c => !AK.LIB[c.type].board));
     order.forEach(c => {
       const d = AK.LIB[c.type];
       const [bx, by, bw, bh] = d.visual.hit || d.visual.box;
-      const isSel = sel && sel.kind === 'comp' && sel.id === c.id;
+      const isSel = selSet.has(c.id);
       comps += `<g class="comp${d.board ? ' board' : ''}${isSel ? ' sel' : ''}" data-id="${c.id}" transform="translate(${c.x} ${c.y}) rotate(${c.rot || 0})">` +
         d.visual.draw(c, { on: connected }) + (d.board ? '' : `<rect class="hit" x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="transparent"/>`) + '</g>';
       const wb = AK.compWorldBox(c);
@@ -2370,6 +2800,10 @@ AK.Editor = class {
       const pts = [a, ...this.wiring.points, this.wiring.cur || a].map(p => p.join(',')).join(' ');
       s += `<polyline class="w-temp" points="${pts}" stroke="${AK.WIRE_COLORS[this.wireColor]}"/>`;
     }
+    if (this.box) {
+      const b = this.box, x = Math.min(b.x0, b.x1), y = Math.min(b.y0, b.y1);
+      s += `<rect class="selrect" x="${x}" y="${y}" width="${Math.abs(b.x1 - b.x0)}" height="${Math.abs(b.y1 - b.y0)}"/>`;
+    }
     if (this.placing && this.placing.cur) {
       const d = AK.LIB[this.placing.type];
       const fake = { type: this.placing.type, value: d.value, ref: d.prefix + '?', props: this.defaultProps(d), rot: 0 };
@@ -2397,13 +2831,61 @@ AK.Editor = class {
     return c;
   }
 
+  // ---------------- выделение ----------------
+  // выделенные компоненты: один (kind 'comp') или группа (kind 'multi')
+  selIds() {
+    const s = this.app.sel;
+    if (!s) return [];
+    if (s.kind === 'comp') return [s.id];
+    if (s.kind === 'multi') return s.ids.filter(id => this.comp(id));
+    return [];
+  }
+  setSel(ids) {
+    this.app.select(!ids.length ? null : ids.length === 1 ? { kind: 'comp', id: ids[0] } : { kind: 'multi', ids });
+  }
+  selectAll() {
+    this.cancel();
+    this.setSel(this.P.components.map(c => c.id));
+    this.render();
+  }
+
+  // что двигается вместе с выделением: сами компоненты, вставленные в выделенные платы,
+  // и провода, у которых оба конца в этом наборе (их точки изгиба)
+  moveSet(ids) {
+    const set = new Set(ids);
+    const pk = o => Object.keys(AK.LIB[o.type].visual.pins).map(p => AK.pinWorld(o, p).map(Math.round).join(','));
+    ids.forEach(id => {
+      const b = this.comp(id);
+      if (!b || !AK.LIB[b.type].board) return;
+      const holes = new Set(pk(b));
+      this.P.components.forEach(o => { if (!AK.LIB[o.type].board && pk(o).some(s => holes.has(s))) set.add(o.id); });
+    });
+    return {
+      comps: this.P.components.filter(c => set.has(c.id)),
+      wires: this.P.wires.filter(w => set.has(w.from.c) && set.has(w.to.c)),
+    };
+  }
+  shiftSet(ms, dx, dy) {
+    ms.comps.forEach(o => { o.x += dx; o.y += dy; });
+    ms.wires.forEach(w => { w.points = w.points.map(([x, y]) => [x + dx, y + dy]); });
+  }
+
+  nudge(dx, dy) {
+    const ids = this.selIds();
+    if (!ids.length) return;
+    this.app.checkpoint();
+    this.shiftSet(this.moveSet(ids), dx, dy);
+    this.app.changed({ keepView: true });
+  }
+
   deleteSelection() {
     const sel = this.app.sel;
     if (!sel) return;
     this.app.checkpoint();
-    if (sel.kind === 'comp') {
-      this.P.components = this.P.components.filter(c => c.id !== sel.id);
-      this.P.wires = this.P.wires.filter(w => w.from.c !== sel.id && w.to.c !== sel.id);
+    const ids = new Set(this.selIds());
+    if (ids.size) {
+      this.P.components = this.P.components.filter(c => !ids.has(c.id));
+      this.P.wires = this.P.wires.filter(w => !ids.has(w.from.c) && !ids.has(w.to.c));
     } else {
       this.P.wires = this.P.wires.filter(w => w.id !== sel.id);
     }
@@ -2412,24 +2894,85 @@ AK.Editor = class {
   }
 
   rotateSelection() {
-    const sel = this.app.sel;
-    if (!sel || sel.kind !== 'comp') return;
+    const ids = this.selIds();
+    if (!ids.length) return;
     this.app.checkpoint();
-    const c = this.comp(sel.id);
-    c.rot = ((c.rot || 0) + 90) % 360;
-    [c.x, c.y] = AK.snapPos(c.type, c.rot, c.x, c.y);
+    const ms = this.moveSet(ids);
+    if (ms.comps.length === 1) {
+      const c = ms.comps[0];
+      c.rot = ((c.rot || 0) + 90) % 360;
+      [c.x, c.y] = AK.snapPos(c.type, c.rot, c.x, c.y);
+    } else {
+      // группа поворачивается вокруг узла сетки в центре — выводы остаются в отверстиях
+      let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+      ms.comps.forEach(c => { const b = AK.compWorldBox(c); x1 = Math.min(x1, b.x); y1 = Math.min(y1, b.y); x2 = Math.max(x2, b.x + b.w); y2 = Math.max(y2, b.y + b.h); });
+      const gx = Math.round((x1 + x2) / 20) * 10, gy = Math.round((y1 + y2) / 20) * 10;
+      const R = ([x, y]) => { const [rx, ry] = AK.util.rotPt(x - gx, y - gy, 90); return [gx + rx, gy + ry]; };
+      ms.comps.forEach(c => { [c.x, c.y] = R([c.x, c.y]); c.rot = ((c.rot || 0) + 90) % 360; });
+      ms.wires.forEach(w => { w.points = w.points.map(R); });
+    }
     this.app.changed();
   }
 
+  // ---------------- буфер обмена ----------------
+  makeClip(ids) {
+    const ms = this.moveSet(ids);
+    if (!ms.comps.length) return null;
+    const ee = {};
+    ms.comps.forEach(c => { const d = AK.LIB[c.type]; if (d.ee && this.P.eeParts && this.P.eeParts[d.ee.uuid]) ee[d.ee.uuid] = this.P.eeParts[d.ee.uuid]; });
+    // ширина группы — копия ставится справа от оригинала, не налезая на него (иначе отверстия плат совпадут)
+    let x1 = Infinity, x2 = -Infinity;
+    ms.comps.forEach(c => { const b = AK.compWorldBox(c); x1 = Math.min(x1, b.x); x2 = Math.max(x2, b.x + b.w); });
+    ms.wires.forEach(w => w.points.forEach(([x]) => { x1 = Math.min(x1, x); x2 = Math.max(x2, x); }));
+    const step = Math.ceil((x2 - x1 + 20) / 10) * 10;
+    return JSON.parse(JSON.stringify({ comps: ms.comps, wires: ms.wires, eeParts: ee, step }));
+  }
+  copySelection() {
+    const clip = this.makeClip(this.selIds());
+    if (!clip) return false;
+    AK.clipboard = clip;
+    this.pasteN = 0;
+    try { localStorage.setItem('autokicad.clipboard', JSON.stringify(clip)); } catch (e) { /* хранилище недоступно */ }
+    return true;
+  }
+  paste() {
+    let clip = AK.clipboard;
+    if (!clip) { try { clip = JSON.parse(localStorage.getItem('autokicad.clipboard')); } catch (e) { clip = null; } }
+    if (!clip || !clip.comps || !clip.comps.length) { this.app.toast('Буфер пуст: выделите компоненты и нажмите Ctrl+C'); return; }
+    this.pasteN = (this.pasteN || 0) + 1;
+    this.insertClip(clip, clip.step * this.pasteN, 0);
+  }
   duplicateSelection() {
-    const sel = this.app.sel;
-    if (!sel || sel.kind !== 'comp') return;
+    const clip = this.makeClip(this.selIds());
+    if (clip) this.insertClip(clip, clip.step, 0);
+  }
+  insertClip(clip, dx, dy) {
+    this.cancel();
     this.app.checkpoint();
-    const src = this.comp(sel.id);
-    const c = this.addComponent(src.type, src.x + 30, src.y + 30);
-    c.value = src.value; c.rot = src.rot; c.props = Object.assign({}, src.props);
-    [c.x, c.y] = AK.snapPos(c.type, c.rot, c.x, c.y);
-    this.app.select({ kind: 'comp', id: c.id });
+    if (Object.keys(clip.eeParts || {}).length) {
+      this.P.eeParts = Object.assign({}, clip.eeParts, this.P.eeParts);
+      AK.EE.register(this.P);
+    }
+    const map = {}, ids = [];
+    clip.comps.forEach(src => {
+      const d = AK.LIB[src.type];
+      if (!d) return;
+      const c = JSON.parse(JSON.stringify(src));
+      c.id = AK.util.uid('c');
+      c.ref = this.app.nextRef(d.prefix, d.virtual);
+      c.x += dx; c.y += dy;
+      map[src.id] = c.id;
+      this.P.components.push(c);
+      ids.push(c.id);
+    });
+    clip.wires.forEach(src => {
+      if (!map[src.from.c] || !map[src.to.c]) return;
+      this.P.wires.push(Object.assign(JSON.parse(JSON.stringify(src)), {
+        id: AK.util.uid('w'), from: { c: map[src.from.c], p: src.from.p }, to: { c: map[src.to.c], p: src.to.p },
+        points: src.points.map(([x, y]) => [x + dx, y + dy]),
+      }));
+    });
+    this.setSel(ids);
     this.app.changed();
   }
 
@@ -2479,11 +3022,13 @@ AK.Editor = class {
       this.zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX - r.left, e.clientY - r.top);
     }, { passive: false });
 
-    svg.addEventListener('contextmenu', e => { e.preventDefault(); this.cancel(); });
+    svg.addEventListener('contextmenu', e => { e.preventDefault(); if (!this.panMoved) this.cancel(); });
 
     svg.addEventListener('pointerdown', e => {
       const [wx, wy] = this.toWorld(e);
-      if (e.button === 1 || (e.button === 0 && e.altKey)) {
+      // сдвиг поля — средней или правой кнопкой (как в EasyEDA), либо Alt + левой
+      if (e.button === 1 || e.button === 2 || (e.button === 0 && e.altKey)) {
+        this.panMoved = false;
         this.pan = { x: e.clientX, y: e.clientY, vx: this.view.x, vy: this.view.y };
         svg.setPointerCapture(e.pointerId);
         return;
@@ -2539,36 +3084,43 @@ AK.Editor = class {
       }
 
       const compEl = e.target.closest('.comp');
-      if (compEl) {
+      const add = e.shiftKey || e.ctrlKey || e.metaKey;
+      const onBoard = compEl && AK.LIB[this.comp(compEl.dataset.id).type].board;
+      if (compEl && !(add && onBoard)) {
         const c = this.comp(compEl.dataset.id);
-        this.app.select({ kind: 'comp', id: c.id });
-        this.drag = { id: c.id, ox: wx - c.x, oy: wy - c.y, moved: false };
-        if (AK.LIB[c.type].board) {
-          // плата едет вместе со вставленными в неё компонентами и перемычками
-          const pk = o => Object.keys(AK.LIB[o.type].visual.pins).map(p => AK.pinWorld(o, p).map(Math.round).join(','));
-          const holes = new Set(pk(c));
-          const carry = this.P.components.filter(o => !AK.LIB[o.type].board && pk(o).some(s => holes.has(s)));
-          const ids = new Set([c.id, ...carry.map(o => o.id)]);
-          this.drag.carry = carry;
-          this.drag.wires = this.P.wires.filter(w => ids.has(w.from.c) && ids.has(w.to.c));
+        let ids = this.selIds();
+        if (add) {
+          // Ctrl/Shift + клик — добавить компонент в выделение или убрать из него
+          ids = ids.includes(c.id) ? ids.filter(id => id !== c.id) : ids.concat(c.id);
+          this.setSel(ids);
+          this.render();
+          return;
         }
+        if (!ids.includes(c.id)) { ids = [c.id]; this.setSel(ids); }
+        // вместе с компонентом едет всё выделенное; плата везёт вставленные в неё компоненты и перемычки
+        this.drag = { id: c.id, ox: wx - c.x, oy: wy - c.y, moved: false, set: this.moveSet(ids) };
         svg.setPointerCapture(e.pointerId);
         this.render();
         return;
       }
 
-      this.app.select(null);
-      this.render();
-      this.pan = { x: e.clientX, y: e.clientY, vx: this.view.x, vy: this.view.y };
+      // рамка выделения: по пустому месту, или с Shift/Ctrl — и поверх платы
+      this.box = { x0: wx, y0: wy, x1: wx, y1: wy, add, base: add ? this.selIds() : [], sx: e.clientX, sy: e.clientY };
       svg.setPointerCapture(e.pointerId);
     });
 
     svg.addEventListener('pointermove', e => {
       const [wx, wy] = this.toWorld(e);
       if (this.pan) {
+        if (Math.abs(e.clientX - this.pan.x) + Math.abs(e.clientY - this.pan.y) > 3) this.panMoved = true;
         this.view.x = this.pan.vx + e.clientX - this.pan.x;
         this.view.y = this.pan.vy + e.clientY - this.pan.y;
         this.applyView();
+        return;
+      }
+      if (this.box) {
+        this.box.x1 = wx; this.box.y1 = wy;
+        this.renderTemp();
         return;
       }
       if (this.drag) {
@@ -2576,12 +3128,7 @@ AK.Editor = class {
         const [nx, ny] = AK.snapPos(c.type, c.rot, wx - this.drag.ox, wy - this.drag.oy);
         if (nx !== c.x || ny !== c.y) {
           if (!this.drag.moved) { this.app.checkpoint(); this.drag.moved = true; }
-          const dx = nx - c.x, dy = ny - c.y;
-          c.x = nx; c.y = ny;
-          if (this.drag.carry) {
-            this.drag.carry.forEach(o => { o.x += dx; o.y += dy; });
-            this.drag.wires.forEach(w => { w.points = w.points.map(([x, y]) => [x + dx, y + dy]); });
-          }
+          this.shiftSet(this.drag.set, nx - c.x, ny - c.y);
           this.render();
         }
         return;
@@ -2603,6 +3150,24 @@ AK.Editor = class {
         this.wiring.down = false;
         const pinEl = e.target && e.target.closest && e.target.closest('.pin');
         if (pinEl && this.finishWire(pinEl.dataset.k)) return;
+      }
+      if (this.box) {
+        const b = this.box;
+        this.box = null;
+        if (Math.abs(e.clientX - b.sx) + Math.abs(e.clientY - b.sy) < 4) {
+          // простой клик по пустому месту — снять выделение
+          if (!b.add) this.app.select(null);
+        } else {
+          // выделяются компоненты, целиком попавшие в рамку
+          const x1 = Math.min(b.x0, b.x1), x2 = Math.max(b.x0, b.x1), y1 = Math.min(b.y0, b.y1), y2 = Math.max(b.y0, b.y1);
+          const inside = this.P.components.filter(c => {
+            const r = AK.compWorldBox(c);
+            return r.x >= x1 && r.y >= y1 && r.x + r.w <= x2 && r.y + r.h <= y2;
+          }).map(c => c.id);
+          this.setSel([...new Set(b.base.concat(inside))]);
+        }
+        this.render();
+        return;
       }
       const moved = (this.drag && this.drag.moved) || (this.hdrag && this.hdrag.moved);
       this.drag = null; this.hdrag = null; this.pan = null;
@@ -2686,7 +3251,7 @@ AK.App = class {
     this.tab = 'board';
     this.undoStack = [];
     this.redoStack = [];
-    this.project = this.load() || AK.demoProject();
+    this.project = (/demo/.test(location.search) && AK.demoProject()) || this.load() || AK.emptyProject();
     this.editor = new AK.Editor(document.getElementById('board'), this);
     this.schView = new AK.SchView(document.getElementById('sch'), this);
     this.buildPalette();
@@ -2698,12 +3263,14 @@ AK.App = class {
   }
 
   // ---------------- состояние ----------------
+  // кэш привязан к объекту проекта: после замены проекта (пример, отмена, открытие файла) он пересчитывается
   netlist() {
-    if (!this.nl) this.nl = AK.buildNetlist(this.project);
+    if (!this.nl || this.nlFor !== this.project) { this.nl = AK.buildNetlist(this.project); this.nlFor = this.project; this.sch = null; }
     return this.nl;
   }
   schematic() {
-    if (!this.sch) this.sch = AK.generateSchematic(this.project, this.netlist());
+    const nl = this.netlist();
+    if (!this.sch) this.sch = AK.generateSchematic(this.project, nl);
     return this.sch;
   }
 
@@ -2752,13 +3319,17 @@ AK.App = class {
   }
 
   save() {
-    try { localStorage.setItem('autokicad.project.v2', JSON.stringify(this.project)); } catch (e) { /* хранилище недоступно */ }
+    try { localStorage.setItem('autokicad.project.v3', JSON.stringify(this.project)); } catch (e) { /* хранилище недоступно */ }
   }
   load() {
-    if (/demo/.test(location.search)) return null;
     try {
-      const s = localStorage.getItem('autokicad.project.v2');
-      if (!s) return null;
+      let s = localStorage.getItem('autokicad.project.v3');
+      if (!s) {
+        // проект прежней версии переносим, если это не загруженный пример (раньше программа открывалась с примером)
+        s = localStorage.getItem('autokicad.project.v2');
+        const old = s && JSON.parse(s);
+        if (!old || AK.EXAMPLES.some(x => x.name === old.name)) return null;
+      }
       const p = JSON.parse(s);
       return this.validate(p) ? p : null;
     } catch (e) { return null; }
@@ -2799,7 +3370,8 @@ AK.App = class {
     const pal = document.getElementById('palette');
     const cats = {};
     Object.values(AK.LIB).forEach(d => { if (!d.fromLibrary) (cats[d.cat] = cats[d.cat] || []).push(d); });
-    let html = '<div class="pal-title">Компоненты</div><div class="pal-help">Перетащите на поле или кликните</div>';
+    let html = '<div class="pal-title">Компоненты</div><div class="pal-help">Перетащите на поле или кликните</div>' +
+      '<input id="palFilter" class="pal-filter" type="search" placeholder="Фильтр: резистор, LED, 555…">';
     const libOk = AK.EE.available();
     html += `<div class="pal-cat">Библиотека EasyEDA / LCSC</div>
       <form class="ee-search" id="eeSearch"><input id="eeQuery" placeholder="NE555, 10k 0603, C25804…" ${libOk ? '' : 'disabled'}><button ${libOk ? '' : 'disabled'}>Найти</button></form>
@@ -2808,7 +3380,7 @@ AK.App = class {
       <div class="ee-attr">Источник: JLCEDA/EasyEDA Official Library · <a href="https://lceda.cn/" target="_blank" rel="noopener">lceda.cn</a> · <a href="https://easyeda.com" target="_blank" rel="noopener">easyeda.com</a></div>
       <div id="palProject"></div>`;
     Object.entries(cats).forEach(([cat, list]) => {
-      html += `<div class="pal-cat">${AK.util.esc(cat)}</div><div class="pal-grid">`;
+      html += `<div class="pal-cat" data-cat="${AK.util.esc(cat)}">${AK.util.esc(cat)}</div><div class="pal-grid" data-cat="${AK.util.esc(cat)}">`;
       list.forEach(d => { html += this.palItem(d); });
       html += '</div>';
     });
@@ -2817,6 +3389,24 @@ AK.App = class {
     this.palPartsKey = null;
     this.renderProjectParts();
     document.getElementById('eeSearch').addEventListener('submit', e => { e.preventDefault(); this.searchLibrary(document.getElementById('eeQuery').value.trim()); });
+    document.getElementById('palFilter').addEventListener('input', e => this.filterPalette(e.target.value));
+  }
+
+  // фильтр встроенных компонентов по названию, номиналу и корпусу
+  filterPalette(q) {
+    const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const pal = document.getElementById('palette');
+    pal.querySelectorAll('.pal-grid[data-cat]').forEach(g => {
+      let any = false;
+      g.querySelectorAll('.pal-item').forEach(el => {
+        const d = AK.LIB[el.dataset.type];
+        const hay = [d.name, d.value, d.prefix, d.eePackage, d.kicadName, d.cat].join(' ').toLowerCase();
+        el.hidden = !words.every(w => hay.includes(w));
+        any = any || !el.hidden;
+      });
+      g.hidden = !any;
+      g.previousElementSibling.hidden = !any;
+    });
   }
 
   palItem(d) {
@@ -2895,9 +3485,15 @@ AK.App = class {
     let h = '';
     const sel = this.sel;
     const comp = sel && sel.kind === 'comp' ? this.project.components.find(c => c.id === sel.id) : null;
+    const multi = sel && sel.kind === 'multi' ? this.project.components.filter(c => sel.ids.includes(c.id)) : null;
     const wire = sel && sel.kind === 'wire' ? this.project.wires.find(w => w.id === sel.id) : null;
 
-    if (comp) {
+    if (multi) {
+      h += `<h3>Выделено: ${multi.length}</h3>`;
+      h += `<div class="muted">${e(multi.map(c => AK.LIB[c.type].virtual ? AK.LIB[c.type].name : c.ref).join(', '))}</div>`;
+      h += `<div class="btnrow"><button data-a="rot">⟳ Повернуть <kbd>R</kbd></button><button data-a="dup">Копия <kbd>Ctrl+D</kbd></button><button data-a="del" class="danger">Удалить <kbd>Del</kbd></button></div>`;
+      h += '<div class="muted small">Перетащите любой из выделенных — сдвинется вся группа. Стрелки — сдвиг на 0.1" (<kbd>Shift</kbd> — на 0.5"). <kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd> — копировать и вставить.</div>';
+    } else if (comp) {
       const d = AK.LIB[comp.type];
       h += `<h3>${e(d.name)}</h3>`;
       if (!d.virtual) {
@@ -2954,8 +3550,9 @@ AK.App = class {
         <li>Отверстия одной полоски (a–e или f–j в столбце, шины + и −) соединены внутри платы, как у настоящей.</li>
         <li>Перемычка: потяните от отверстия или вывода к другому отверстию.</li>
         <li>Схема строится сама — справа в режиме <b>«Монтаж + схема»</b> или на вкладке <b>«Схема»</b>.</li>
-        <li>Экспортируйте в KiCad или EasyEDA.</li></ol>
-        <div class="muted small"><kbd>R</kbd> поворот · <kbd>Del</kbd> удалить · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> отмена/повтор · колесо — масштаб · перетаскивание пустого места — сдвиг · <kbd>Shift</kbd>+клик при установке — поставить несколько</div>`;
+        <li>Экспортируйте в KiCad или EasyEDA. Готовые схемы — в меню <b>«Примеры»</b>.</li></ol>
+        <div class="muted small"><kbd>R</kbd> поворот · <kbd>Del</kbd> удалить · <kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd> / <kbd>Ctrl+X</kbd> копировать / вставить / вырезать · <kbd>Ctrl+D</kbd> копия · <kbd>Ctrl+A</kbd> выделить всё · стрелки — сдвиг · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> отмена/повтор<br>
+        Рамка левой кнопкой по пустому месту — выделение (<kbd>Shift</kbd> или <kbd>Ctrl</kbd> — добавить), <kbd>Ctrl</kbd>+клик — добавить/убрать компонент · правая или средняя кнопка — сдвиг поля · колесо — масштаб · <kbd>Shift</kbd>+клик при установке — поставить несколько</div>`;
     }
     el.innerHTML = h;
 
@@ -2999,6 +3596,17 @@ AK.App = class {
     this.changed();
   }
 
+  loadExample(id) {
+    const ex = AK.EXAMPLES.find(x => x.id === id);
+    if (!ex) return;
+    this.checkpoint();
+    this.project = ex.build();
+    this.select(null);
+    this.changed();
+    this.editor.fit();
+    this.toast(`Пример «${ex.name}» загружен. Вернуть прежний проект — Ctrl+Z`);
+  }
+
   // ---------------- UI ----------------
   hint(text) {
     const h = document.getElementById('hint');
@@ -3037,6 +3645,32 @@ AK.App = class {
     if (kind === 'easyeda') { AK.util.download(base + '_easyeda.json', AK.exportEasyEDA(this.project, m), 'application/json'); this.toast('Исходник EasyEDA сохранён (.json)'); }
     if (kind === 'svg') { AK.util.download(base + '_schematic.svg', AK.schematicStandaloneSVG(m, this.project.name), 'image/svg+xml'); this.toast('Схема сохранена как SVG'); }
     if (kind === 'project') { AK.util.download(base + '.akc.json', JSON.stringify(this.project, null, 1), 'application/json'); this.toast('Проект сохранён'); }
+    if (kind === 'bom') { AK.util.download(base + '_BOM.csv', AK.bomCSV(this.project), 'text/csv;charset=utf-8'); this.toast('Перечень элементов сохранён (.csv)'); }
+    if (kind === 'png') {
+      AK.util.svgToPng(AK.schematicStandaloneSVG(m, this.project.name), 2)
+        .then(blob => { AK.util.download(base + '_schematic.png', blob); this.toast('Схема сохранена как PNG'); })
+        .catch(err => this.toast('Не удалось сохранить PNG: ' + err.message));
+    }
+    if (kind === 'print') this.printSchematic(m);
+  }
+
+  // печать схемы; в диалоге печати можно выбрать «Сохранить как PDF»
+  printSchematic(m) {
+    const e = AK.util.esc, title = e(this.project.name || 'Схема');
+    const svg = AK.schematicStandaloneSVG(m, this.project.name).replace(/^<\?xml[^>]*>/, '');
+    const f = document.createElement('iframe');
+    f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    document.body.appendChild(f);
+    const doc = f.contentDocument;
+    doc.open();
+    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>` +
+      '<style>@page{size:A4 landscape;margin:10mm}html,body{margin:0}svg{width:100%;height:auto;max-height:180mm}h1{font:600 14px Arial,sans-serif;margin:0 0 6px}</style></head>' +
+      `<body><h1>${title}</h1>${svg}</body></html>`);
+    doc.close();
+    setTimeout(() => {
+      try { f.contentWindow.focus(); f.contentWindow.print(); } catch (err) { this.toast('Печать недоступна: ' + err.message); }
+      setTimeout(() => f.remove(), 1000);
+    }, 200);
   }
 
   openFile(file) {
@@ -3076,13 +3710,11 @@ AK.App = class {
       this.select(null);
       this.changed();
     });
-    $('btnDemo').addEventListener('click', () => {
-      this.checkpoint();
-      this.project = AK.demoProject();
-      this.select(null);
-      this.changed();
-      this.editor.fit();
-    });
+    $('examplesMenu').innerHTML = AK.EXAMPLES.map(x => `<button data-example="${x.id}"><b>${AK.util.esc(x.name)}</b><small>${AK.util.esc(x.desc)}</small></button>`).join('');
+    document.querySelectorAll('[data-example]').forEach(b => b.addEventListener('click', () => {
+      this.loadExample(b.dataset.example);
+      b.closest('.dropdown').classList.remove('open');
+    }));
     $('btnOpen').addEventListener('click', () => $('fileInput').click());
     $('fileInput').addEventListener('change', e => { if (e.target.files[0]) this.openFile(e.target.files[0]); e.target.value = ''; });
     $('btnSave').addEventListener('click', () => this.exportAs('project'));
@@ -3090,9 +3722,13 @@ AK.App = class {
       this.exportAs(b.dataset.export);
       b.closest('.dropdown').classList.remove('open');
     }));
-    const dd = document.querySelector('.dropdown');
-    $('btnExport').addEventListener('click', e => { e.stopPropagation(); dd.classList.toggle('open'); });
-    document.addEventListener('click', e => { if (!dd.contains(e.target)) dd.classList.remove('open'); });
+    const dds = [...document.querySelectorAll('.dropdown')];
+    dds.forEach(dd => dd.querySelector(':scope > button').addEventListener('click', e => {
+      e.stopPropagation();
+      dds.forEach(o => { if (o !== dd) o.classList.remove('open'); });
+      dd.classList.toggle('open');
+    }));
+    document.addEventListener('click', e => dds.forEach(dd => { if (!dd.contains(e.target)) dd.classList.remove('open'); }));
 
     const view = () => (this.tab === 'sch' ? this.schView : this.editor);
     $('zoomIn').addEventListener('click', () => view().zoomBy(1.25));
@@ -3106,7 +3742,14 @@ AK.App = class {
       if ((e.ctrlKey || e.metaKey) && (k === 'y' || k === 'н')) { e.preventDefault(); this.redo(); return; }
       if ((e.ctrlKey || e.metaKey) && (k === 's' || k === 'ы')) { e.preventDefault(); this.exportAs('project'); return; }
       if (this.tab === 'sch') return;
-      if ((e.ctrlKey || e.metaKey) && (k === 'd' || k === 'в')) { e.preventDefault(); this.editor.duplicateSelection(); return; }
+      const ed = this.editor, ctrl = e.ctrlKey || e.metaKey;
+      if (ctrl && (k === 'd' || k === 'в')) { e.preventDefault(); ed.duplicateSelection(); return; }
+      if (ctrl && (k === 'a' || k === 'ф')) { e.preventDefault(); ed.selectAll(); return; }
+      if (ctrl && (k === 'c' || k === 'с')) { if (ed.copySelection()) { e.preventDefault(); this.toast('Скопировано'); } return; }
+      if (ctrl && (k === 'x' || k === 'ч')) { if (ed.copySelection()) { e.preventDefault(); ed.deleteSelection(); } return; }
+      if (ctrl && (k === 'v' || k === 'м')) { e.preventDefault(); ed.paste(); return; }
+      const arrows = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] };
+      if (arrows[k]) { e.preventDefault(); const st = e.shiftKey ? 50 : 10; ed.nudge(arrows[k][0] * st, arrows[k][1] * st); return; }
       if (k === 'escape') { if (!this.editor.cancel()) { this.select(null); this.editor.render(); } return; }
       if (k === 'delete' || k === 'backspace') { e.preventDefault(); this.editor.deleteSelection(); return; }
       if (k === 'r' || k === 'к') { this.editor.rotateSelection(); return; }
@@ -3122,38 +3765,23 @@ AK.emptyProject = function () {
   return { version: 1, name: 'Новый проект', components: [{ id: 'bb', type: 'breadboard', ref: 'BB1', value: '', x: 300, y: 250, rot: 0, props: {} }], wires: [] };
 };
 
-// Пример: мигалка на NE555, собранная на макетной плате.
-// Ножки стоят в отверстиях; провода — только перемычки между полосками.
-AK.demoProject = function () {
-  const C = (id, type, ref, value, x, y, rot, props) => ({ id, type, ref, value, x, y, rot: rot || 0, props: props || {} });
-  const comps = [
-    C('bb', 'breadboard', 'BB1', '', 300, 250),
-    C('bt1', 'battery', 'BT1', '9V', 80, 200, 90),
-    C('u1', 'ne555', 'U1', 'NE555', 305, 255),         // выводы 8,7,6,5 — e14…e17; 1,2,3,4 — f14…f17
-    C('r1', 'resistor', 'R1', '1k', 260, 190, 90),     // шина + → c11
-    C('r2', 'resistor', 'R2', '10k', 260, 270, 90),    // e11 → i11, через канавку
-    C('c1', 'electrolytic', 'C1', '10u', 320, 180),    // + a16 (THR), − a18
-    C('r3', 'resistor', 'R3', '330', 340, 300),        // i16 (Q) → i22
-    C('d1', 'led', 'D1', 'LED', 380, 250, 0, { color: 'red' }), // анод f22, катод f24
-  ];
-  const RED = '#e53935', BLK = '#212121', BLU = '#1e88e5', GRN = '#43a047';
-  const W = (id, fc, fp, tc, tp, color, points) => ({ id, from: { c: fc, p: fp }, to: { c: tc, p: tp }, points: points || [], color, net: '' });
-  const J = (id, a, b, color, points) => W(id, 'bb', a, 'bb', b, color, points);
-  const wires = [
-    W('w1', 'bt1', '1', 'bb', 'TP1', RED),
-    W('w2', 'bt1', '2', 'bb', 'TN1', BLK, [[100, 240], [100, 170]]),
-    J('w3', 'TP29', 'BP29', RED, [[495, 160], [495, 350]]),
-    J('w4', 'TN29', 'BN29', BLK, [[485, 170], [485, 340]]),
-    J('w5', 'a14', 'TP14', RED),   // VCC (8)
-    J('w6', 'j17', 'BP17', RED),   // R (4)
-    J('w7', 'j14', 'BN14', BLK),   // GND (1)
-    J('w8', 'd15', 'd11', BLU),    // DIS (7) → R1, R2
-    J('w9', 'd16', 'g15', GRN),    // THR (6) ↔ TR (2), над корпусом
-    J('w10', 'j11', 'h15', GRN),   // R2 → TR (2)
-    J('w11', 'b18', 'TN20', BLK),  // C1 − → GND
-    J('w12', 'j24', 'BN25', BLK),  // катод LED → GND
-  ];
-  return { version: 1, name: 'Мигалка на NE555', components: comps, wires };
+// Перечень элементов (BOM), как в EasyEDA: одинаковые детали — одной строкой. Разделитель «;» — для Excel.
+AK.bomCSV = function (project) {
+  const rows = new Map();
+  project.components.forEach(c => {
+    const d = AK.LIB[c.type];
+    if (d.virtual) return;
+    const value = c.value || d.value;
+    const key = [c.type, value].join('|');
+    if (!rows.has(key)) rows.set(key, { refs: [], value, name: d.name, pkg: d.eePackage || '', fp: d.footprint || '', lcsc: d.lcsc || '' });
+    rows.get(key).refs.push(c.ref);
+  });
+  const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true });
+  const q = s => '"' + String(s).replace(/"/g, '""') + '"';
+  const out = [['№', 'Обозначения', 'Номинал', 'Наименование', 'Корпус', 'Посадочное место KiCad', 'Кол-во', 'LCSC'].map(q).join(';')];
+  [...rows.values()].sort((a, b) => natural(a.refs.sort(natural)[0], b.refs.sort(natural)[0]))
+    .forEach((r, i) => out.push([i + 1, r.refs.join(', '), r.value, r.name, r.pkg, r.fp, r.refs.length, r.lcsc].map(q).join(';')));
+  return '﻿' + out.join('\r\n') + '\r\n';
 };
 
 </script>

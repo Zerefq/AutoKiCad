@@ -69,9 +69,10 @@ AK.exportEasyEDA = function (project, model, opts) {
       const name = clean(p.name || num);
       const nameVis = s.showNames && p.name ? 1 : 0;
       const numVis = s.showNums ? 1 : 0;
-      const anchor = p.dir === 'R' ? 'start' : 'end';
+      // у вертикального вывода имя — по центру, внутри корпуса
+      const anchor = dy ? 'middle' : p.dir === 'R' ? 'start' : 'end';
       sub.push(`P~show~0~${clean(num)}~${px}~${py}~${ROT[p.dir]}~${id()}~0^^${px}~${py}^^${path}~${PIN}^^` +
-        `${nameVis}~${ex + dx * 3}~${ey + 3}~0~${name}~${anchor}~~~#0000FF^^` +
+        `${nameVis}~${ex + dx * 3}~${ey + 3 + dy * 5}~0~${name}~${anchor}~~~#0000FF^^` +
         `${numVis}~${(px + ex) / 2}~${py - 1}~0~${clean(num)}~middle~~~#0000FF^^0~${ex}~${ey}^^0~M 0 0`);
     });
     const para = d.ee ? libPara(d, c) : [

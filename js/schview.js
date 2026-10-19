@@ -37,8 +37,9 @@ AK.symbolSVG = function (def, comp, showText) {
     const ex = p.x + dx * p.len, ey = p.y + dy * p.len;
     out += `<line class="s-pin" x1="${p.x}" y1="${p.y}" x2="${ex}" y2="${ey}"/>`;
     if (s.showNames && p.name) {
-      const anchor = p.dir === 'R' ? 'start' : 'end';
-      out += `<text class="s-pinname" x="${ex + dx * 0.25}" y="${ey}" text-anchor="${anchor}" dominant-baseline="central">${e(p.name)}</text>`;
+      // у вертикального вывода имя — над/под концом вывода, внутри корпуса
+      const anchor = dy ? 'middle' : p.dir === 'R' ? 'start' : 'end';
+      out += `<text class="s-pinname" x="${ex + dx * 0.25}" y="${ey + dy * 0.4}" text-anchor="${anchor}" dominant-baseline="central">${e(p.name)}</text>`;
     }
     if (s.showNums) {
       out += `<text class="s-pinnum" x="${(p.x + ex) / 2}" y="${p.y - 0.12}" text-anchor="middle">${e(num)}</text>`;

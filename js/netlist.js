@@ -40,9 +40,12 @@ AK.buildNetlist = function (project) {
   const plugged = new Set();
   at.forEach(ks => {
     if (ks.length < 2) return;
+    const legs = ks.filter(k => !AK.LIB[comps.get(k.split(':')[0]).type].board).length;
+    // отверстия наложенных друг на друга плат без ножки в них не соединяются
+    if (!legs) return;
     ks.forEach(k => { union(ks[0], k); plugged.add(k); });
     // ножка в пустом отверстии ещё не соединение; две ножки в одной точке — соединение
-    if (ks.filter(k => !AK.LIB[comps.get(k.split(':')[0]).type].board).length > 1) ks.forEach(k => wired.add(k));
+    if (legs > 1) ks.forEach(k => wired.add(k));
   });
 
   // Имена цепей: 3 — задано пользователем на проводе, 2 — источник питания, 1 — подсказка вывода (GND у Arduino и т.п.)

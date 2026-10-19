@@ -277,6 +277,187 @@ AK.LIB = (function () {
     },
   };
 
+  // корпус TO-92: три ножки в ряд с шагом 0.1"
+  function to92(c) {
+    return leg(-10, 4, -10, 20) + leg(0, 4, 0, 20) + leg(10, 4, 10, 20) +
+      `<path d="M -12 4 L -12 -10 A 12 12 0 0 1 12 -10 L 12 4 Z" fill="#262626" stroke="#000"/>` +
+      txt(0, -6, c.value, 5, '#ddd');
+  }
+  const pinLabels = (names, y) => names.map((n, i) => txt(-10 + i * 10, y, n, 5, '#667')).join('');
+
+  defs.pnp = {
+    name: 'PNP транзистор', prefix: 'Q', cat: 'Полупроводники', value: 'BC557', kicadName: 'PNP',
+    footprint: 'Package_TO_SOT_THT:TO-92_Inline', eePackage: 'TO-92',
+    pinNames: { 1: 'C', 2: 'B', 3: 'E' },
+    visual: {
+      box: [-13, -23, 26, 43],
+      hit: [-13, -23, 26, 28],
+      pins: { 1: [-10, 20], 2: [0, 20], 3: [10, 20] },
+      draw(c) { return to92(c) + pinLabels(['C', 'B', 'E'], 26); },
+    },
+    sym: {
+      gfx: [CIRC(0.4, 0, 1.2), L([-0.4, -0.7], [-0.4, 0.7]), L([-0.4, -0.35], [1, -1]), L([-0.4, 0.35], [1, 1]), arrowHead(0.748, -0.883, 0.048, -0.558, 0.35)],
+      pins: { 3: pin(1, -2, 'D', 1), 2: pin(-2, 0, 'R', 1.6), 1: pin(1, 2, 'U', 1) },
+      ref: [1.8, -0.3, 'start'], val: [1.8, 0.6, 'start'],
+    },
+  };
+
+  // корпус TO-220: металлический фланец сверху, три ножки с шагом 0.1"
+  function to220(c) {
+    return leg(-10, 2, -10, 20) + leg(0, 2, 0, 20) + leg(10, 2, 10, 20) +
+      `<rect x="-15" y="-32" width="30" height="16" rx="1.5" fill="#b0b5ba" stroke="#7d848b"/>` +
+      `<circle cx="0" cy="-25" r="3.6" fill="#f4f2ec" stroke="#7d848b"/>` +
+      `<rect x="-15" y="-17" width="30" height="19" rx="1" fill="#262626" stroke="#000"/>` +
+      txt(0, -8, c.value, 5, '#ddd');
+  }
+
+  defs.nmos = {
+    name: 'N-MOSFET', prefix: 'Q', cat: 'Полупроводники', value: 'IRLZ44N', kicadName: 'NMOS',
+    footprint: 'Package_TO_SOT_THT:TO-220-3_Vertical', eePackage: 'TO-220-3',
+    pinNames: { 1: 'G', 2: 'D', 3: 'S' },
+    visual: {
+      box: [-15, -32, 30, 58],
+      hit: [-15, -32, 30, 34],
+      pins: { 1: [-10, 20], 2: [0, 20], 3: [10, 20] },
+      draw(c) { return to220(c) + pinLabels(['G', 'D', 'S'], 26); },
+    },
+    sym: {
+      gfx: [L([-0.4, -0.7], [-0.4, 0.7]), L([-0.1, -0.8], [-0.1, -0.4]), L([-0.1, -0.2], [-0.1, 0.2]), L([-0.1, 0.4], [-0.1, 0.8]),
+        L([-0.1, -0.6], [1, -0.6], [1, -1]), L([-0.1, 0.6], [1, 0.6], [1, 1]), L([-0.1, 0], [1, 0], [1, 0.6]), arrowHead(0.5, 0, -0.05, 0, 0.35)],
+      pins: { 2: pin(1, -2, 'D', 1), 1: pin(-2, 0, 'R', 1.6), 3: pin(1, 2, 'U', 1) },
+      ref: [1.5, -0.3, 'start'], val: [1.5, 0.6, 'start'],
+    },
+  };
+
+  defs.zener = {
+    name: 'Стабилитрон', prefix: 'D', cat: 'Полупроводники', value: 'BZX55C5V1', kicadName: 'D_Zener',
+    footprint: 'Diode_THT:D_DO-35_SOD27_P10.16mm_Horizontal', eePackage: 'DO-35',
+    pinNames: { 1: 'K', 2: 'A' },
+    visual: {
+      box: [-30, -6, 60, 12],
+      hit: [-12, -6, 24, 12],
+      pins: { 2: [-30, 0], 1: [30, 0] },
+      draw() {
+        return leg(-30, 0, -12, 0) + leg(12, 0, 30, 0) +
+          `<rect x="-12" y="-4.5" width="24" height="9" rx="3" fill="#f2a65a" fill-opacity=".9" stroke="#b5651d"/>` +
+          `<rect x="6" y="-4.5" width="3" height="9" fill="#222"/>`;
+      },
+    },
+    sym: {
+      gfx: [POLY([-0.5, -0.6], [0.5, 0], [-0.5, 0.6]), L([0.7, -0.75], [0.5, -0.6], [0.5, 0.6], [0.3, 0.75]), L([-0.5, 0], [0.5, 0])],
+      pins: { 2: pin(-2, 0, 'R', 1.5), 1: pin(2, 0, 'L', 1.5) },
+      ref: [0, -1.1, 'middle'], val: [0, 1.2, 'middle'],
+    },
+  };
+
+  defs.inductor = {
+    name: 'Катушка индуктивности', prefix: 'L', cat: 'Пассивные', value: '10uH', kicadName: 'L',
+    footprint: 'Inductor_THT:L_Axial_L5.3mm_D2.2mm_P10.16mm_Horizontal_Vishay_IM-1', eePackage: 'AXIAL-0.4',
+    visual: {
+      box: [-30, -7, 60, 14],
+      hit: [-16, -7, 32, 14],
+      pins: { 1: [-30, 0], 2: [30, 0] },
+      draw(c) {
+        const b = resistorBands(String(c.value).replace(/H$/i, '').replace(/u$/, '') || '10');
+        return leg(-30, 0, -15, 0) + leg(15, 0, 30, 0) +
+          `<rect x="-16" y="-6" width="32" height="12" rx="5" fill="#5f9e6e" stroke="#3b6b47"/>` +
+          `<rect x="-9" y="-6" width="3" height="12" fill="${b[0]}"/><rect x="-3" y="-6" width="3" height="12" fill="${b[1]}"/>` +
+          `<rect x="3" y="-6" width="3" height="12" fill="${b[2]}"/>`;
+      },
+    },
+    sym: {
+      gfx: [L(...arc(-0.75, 0, 0.25, 180, 360, 6)), L(...arc(-0.25, 0, 0.25, 180, 360, 6)), L(...arc(0.25, 0, 0.25, 180, 360, 6)), L(...arc(0.75, 0, 0.25, 180, 360, 6))],
+      pins: { 1: pin(-2, 0, 'R', 1), 2: pin(2, 0, 'L', 1) },
+      ref: [0, -0.9, 'middle'], val: [0, 0.9, 'middle'],
+    },
+  };
+
+  defs.crystal = {
+    name: 'Кварцевый резонатор', prefix: 'Y', cat: 'Пассивные', value: '16MHz', kicadName: 'Crystal',
+    footprint: 'Crystal:Crystal_HC49-4H_Vertical', eePackage: 'HC-49S',
+    visual: {
+      box: [-16, -12, 32, 32],
+      hit: [-16, -12, 32, 18],
+      pins: { 1: [-10, 20], 2: [10, 20] },
+      draw(c) {
+        return leg(-10, 6, -10, 20) + leg(10, 6, 10, 20) +
+          `<rect x="-16" y="-12" width="32" height="18" rx="9" fill="#cfd4d9" stroke="#8a9199"/>` +
+          `<rect x="-12" y="-9" width="24" height="12" rx="6" fill="none" stroke="#a7aeb5"/>` + txt(0, -3, c.value, 5, '#444');
+      },
+    },
+    sym: {
+      gfx: [RECT(-0.25, -0.6, 0.25, 0.6), L([-0.5, -0.7], [-0.5, 0.7]), L([0.5, -0.7], [0.5, 0.7])],
+      pins: { 1: pin(-2, 0, 'R', 1.5), 2: pin(2, 0, 'L', 1.5) },
+      ref: [0, -1.2, 'middle'], val: [0, 1.3, 'middle'],
+    },
+  };
+
+  defs.ldr = {
+    name: 'Фоторезистор', prefix: 'R', cat: 'Датчики', value: 'GL5528', kicadName: 'R_Photo',
+    footprint: 'OptoDevice:R_LDR_5.1x4.3mm_P3.4mm_Vertical', eePackage: 'LDR-5MM',
+    visual: {
+      box: [-12, -16, 24, 36],
+      hit: [-12, -16, 24, 22],
+      pins: { 1: [-10, 20], 2: [10, 20] },
+      draw() {
+        return leg(-6, 4, -10, 20) + leg(6, 4, 10, 20) +
+          `<circle cx="0" cy="-5" r="11" fill="#f5e6c8" stroke="#a08560"/>` +
+          `<path d="M -7 -10 h 12 v 3 h -10 v 3 h 10 v 3 h -12" fill="none" stroke="#c0392b" stroke-width="1.6"/>`;
+      },
+    },
+    sym: {
+      gfx: [RECT(-1, -0.4, 1, 0.4), L([-0.8, -1.4], [-0.3, -0.7]), arrowHead(-0.8, -1.4, -0.3, -0.7, 0.25), L([-0.2, -1.4], [0.3, -0.7]), arrowHead(-0.2, -1.4, 0.3, -0.7, 0.25)],
+      pins: { 1: pin(-2, 0, 'R', 1), 2: pin(2, 0, 'L', 1) },
+      ref: [0, -1.8, 'middle'], val: [0, 1.1, 'middle'],
+    },
+  };
+
+  defs.spdt = {
+    name: 'Переключатель', prefix: 'SW', cat: 'Управление', value: 'SPDT', kicadName: 'SW_SPDT',
+    footprint: 'Button_Switch_THT:SW_Slide_SPDT_Straight_CK_OS102011MS2Q', eePackage: 'SW-SLIDE-3P',
+    pinNames: { 1: 'A', 2: 'COM', 3: 'B' },
+    visual: {
+      box: [-17, -12, 34, 32],
+      hit: [-17, -12, 34, 16],
+      pins: { 1: [-10, 20], 2: [0, 20], 3: [10, 20] },
+      draw(c) {
+        const on = c.props && c.props.pos === 'b';
+        return leg(-10, 4, -10, 20) + leg(0, 4, 0, 20) + leg(10, 4, 10, 20) +
+          `<rect x="-17" y="-12" width="34" height="16" rx="2" fill="#2f3337" stroke="#111"/>` +
+          `<rect x="-12" y="-8" width="24" height="8" rx="1" fill="#15181b"/>` +
+          `<rect x="${on ? 1 : -11}" y="-10" width="10" height="12" rx="1.5" fill="#eceff1" stroke="#90a4ae"/>`;
+      },
+    },
+    props: [{ key: 'pos', label: 'Положение (только вид)', options: { a: 'COM — A', b: 'COM — B' }, def: 'a' }],
+    sym: {
+      gfx: [CIRC(-0.9, 0, 0.12), CIRC(0.9, -1, 0.12), CIRC(0.9, 1, 0.12), L([-0.8, -0.05], [0.8, -0.85])],
+      pins: { 2: pin(-2, 0, 'R', 1), 1: pin(2, -1, 'L', 1), 3: pin(2, 1, 'L', 1) },
+      ref: [0, -1.8, 'middle'], val: [0, 1.9, 'middle'],
+    },
+  };
+
+  defs.motor = {
+    name: 'Мотор', prefix: 'M', cat: 'Управление', value: 'Motor', kicadName: 'Motor_DC',
+    footprint: 'Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical', eePackage: 'HDR-2P',
+    pinNames: { 1: '+', 2: '−' },
+    visual: {
+      box: [-18, -32, 36, 52],
+      hit: [-18, -32, 36, 38],
+      pins: { 1: [-10, 20], 2: [10, 20] },
+      draw() {
+        return leg(-10, 4, -10, 20) + leg(10, 4, 10, 20) +
+          `<circle cx="0" cy="-13" r="17" fill="#b0b5ba" stroke="#6d747b"/>` +
+          `<circle cx="0" cy="-13" r="4" fill="#e8eaec" stroke="#6d747b"/>` + txt(0, -1, 'M', 7, '#333', 'font-weight="700"') +
+          txt(-14, 13, '+', 8, '#c62828', 'font-weight="700"');
+      },
+    },
+    sym: {
+      gfx: [CIRC(0, 0, 0.9), TXT(0, 0, 'M', 0.9)],
+      pins: { 1: pin(0, -2, 'D', 1.1), 2: pin(0, 2, 'U', 1.1) },
+      ref: [1.2, -0.3, 'start'], val: [1.2, 0.6, 'start'],
+    },
+  };
+
   defs.button = {
     name: 'Кнопка', prefix: 'SW', cat: 'Управление', value: 'BTN', kicadName: 'SW_Push',
     footprint: 'Button_Switch_THT:SW_PUSH_6mm', eePackage: 'KEY-6X6',
@@ -395,28 +576,69 @@ AK.LIB = (function () {
     };
   }
   defs.header2 = header(2);
+  defs.header3 = header(3);
   defs.header4 = header(4);
+  defs.header6 = header(6);
+  defs.header8 = header(8);
+
+  // корпус DIP-8: ряды выводов через 0.3" — встаёт поперёк канавки макетной платы
+  const DIP8 = () => ({
+    box: [-22, -17, 44, 34],
+    hit: [-22, -11, 44, 22], // область захвата — только корпус, отверстия у ножек остаются доступны
+    pins: { 1: [-15, 15], 2: [-5, 15], 3: [5, 15], 4: [15, 15], 5: [15, -15], 6: [5, -15], 7: [-5, -15], 8: [-15, -15] },
+    draw(c) {
+      let s = '';
+      [-15, -5, 5, 15].forEach(x => { s += `<rect x="${x - 2}" y="-15" width="4" height="30" fill="#b9bec4"/>`; });
+      return s + `<rect x="-22" y="-11" width="44" height="22" rx="2" fill="#2b2b2b" stroke="#000"/>` +
+        `<path d="M -22 -5 A 5 5 0 0 1 -22 5" fill="#555"/><circle cx="-16" cy="6" r="1.8" fill="#555"/>` +
+        txt(2, 0, c.value, 7, '#ddd', 'font-weight="600"');
+    },
+  });
 
   defs.ne555 = {
     name: 'Таймер NE555', prefix: 'U', cat: 'Микросхемы', value: 'NE555', kicadName: 'NE555',
     footprint: 'Package_DIP:DIP-8_W7.62mm', eePackage: 'DIP-8',
     pinNames: { 1: 'GND', 2: 'TR', 3: 'Q', 4: 'R', 5: 'CV', 6: 'THR', 7: 'DIS', 8: 'VCC' },
-    visual: {
-      // ряды выводов DIP через 0.3" — корпус встаёт поперёк канавки макетной платы
-      box: [-22, -17, 44, 34],
-      hit: [-22, -11, 44, 22], // область захвата — только корпус, отверстия у ножек остаются доступны
-      pins: { 1: [-15, 15], 2: [-5, 15], 3: [5, 15], 4: [15, 15], 5: [15, -15], 6: [5, -15], 7: [-5, -15], 8: [-15, -15] },
-      draw(c) {
-        let s = '';
-        [-15, -5, 5, 15].forEach(x => { s += `<rect x="${x - 2}" y="-15" width="4" height="30" fill="#b9bec4"/>`; });
-        return s + `<rect x="-22" y="-11" width="44" height="22" rx="2" fill="#2b2b2b" stroke="#000"/>` +
-          `<path d="M -22 -5 A 5 5 0 0 1 -22 5" fill="#555"/><circle cx="-16" cy="6" r="1.8" fill="#555"/>` +
-          txt(2, 0, c.value, 7, '#ddd', 'font-weight="600"');
-      },
-    },
+    visual: DIP8(),
     sym: makeIC(
       [['4', 'R', 'in'], ['2', 'TR', 'in'], ['6', 'THR', 'in'], ['5', 'CV', 'in']],
       [['8', 'VCC', 'pwr'], ['3', 'Q', 'out'], ['7', 'DIS', 'oc'], ['1', 'GND', 'pwr']], 6),
+  };
+
+  defs.lm358 = {
+    name: 'ОУ LM358 (×2)', prefix: 'U', cat: 'Микросхемы', value: 'LM358', kicadName: 'LM358',
+    footprint: 'Package_DIP:DIP-8_W7.62mm', eePackage: 'DIP-8',
+    pinNames: { 1: 'OUTA', 2: '-INA', 3: '+INA', 4: 'GND', 5: '+INB', 6: '-INB', 7: 'OUTB', 8: 'V+' },
+    visual: DIP8(),
+    sym: makeIC(
+      [['3', '+INA', 'in'], ['2', '-INA', 'in'], ['5', '+INB', 'in'], ['6', '-INB', 'in']],
+      [['8', 'V+', 'pwr'], ['1', 'OUTA', 'out'], ['7', 'OUTB', 'out'], ['4', 'GND', 'pwr']], 6),
+  };
+
+  // линейный стабилизатор 78xx: выход становится цепью питания (+5V у 7805, +12V у 7812…)
+  defs.reg78 = {
+    name: 'Стабилизатор 7805', prefix: 'U', cat: 'Питание', value: 'L7805', kicadName: 'L7805',
+    footprint: 'Package_TO_SOT_THT:TO-220-3_Vertical', eePackage: 'TO-220-3',
+    pinNames: { 1: 'IN', 2: 'GND', 3: 'OUT' },
+    pinPower: { 2: 'GND' },
+    pinPowerFn(c) {
+      const m = String(c.value || '').match(/78[LM]?(\d\d)/i);
+      if (!m) return {};
+      const v = m[1] === '33' ? '3V3' : String(+m[1]) + 'V';
+      return { 3: '+' + v };
+    },
+    visual: {
+      box: [-15, -32, 30, 58],
+      hit: [-15, -32, 30, 34],
+      pins: { 1: [-10, 20], 2: [0, 20], 3: [10, 20] },
+      draw(c) { return to220(c) + pinLabels(['I', 'G', 'O'], 26); },
+    },
+    sym: {
+      gfx: [RECT(-2, -1, 2, 1.6, 'body')],
+      pins: { 1: pin(-3, 0, 'R', 1, { name: 'VI', type: 'pwr' }), 3: pin(3, 0, 'L', 1, { name: 'VO' }), 2: pin(0, 3, 'U', 1.4, { name: 'GND', type: 'pwr' }) },
+      ref: [-2, -1.6, 'start'], val: [0.5, 2.6, 'start'],
+      showNames: true,
+    },
   };
 
   // Arduino Nano: номера выводов как в KiCad Module:Arduino_Nano
