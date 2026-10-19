@@ -1,0 +1,8 @@
+{
+	"name": "AutoKiCad — макетная плата",
+	"description": "Соберите схему на макетной плате, как в Tinkercad, — принципиальная схема EasyEDA построится сама. Компоненты — из библиотеки EasyEDA/LCSC.",
+	"icons": {
+		"default": "icon.svg"
+	},
+	"scripts": [ "main.js" ]
+}
