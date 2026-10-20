@@ -43,6 +43,10 @@
   // Шаг 2: каждый символ сдвигается на своё место (moveObjs пересчитывает все его фигуры).
   // Шаг 3: в документ добавляются провода, символы питания, метки и встроенные компоненты.
   function build(p) {
+    // метка нового документа: ждём, пока активной станет именно новая схема
+    // (без неё при проекте без деталей библиотеки провода могли попасть в предыдущий документ)
+    var token = 'akc' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    p.libDoc.head.c_para = Object.assign({}, p.libDoc.head.c_para, { AutoKiCadBuild: token });
     try {
       api('applySource', { source: p.libDoc, createNew: true });
     } catch (e) { reply({ akc: 'built', ok: false, error: String(e) }); return; }
@@ -51,8 +55,9 @@
       tries++;
       try {
         var c = compress();
+        var mine = c && c.head && (c.head.c_para || {}).AutoKiCadBuild === token;
         var libs = (c && c.shape || []).filter(function (s) { return s.indexOf('LIB~') === 0; });
-        if (libs.length < need) { if (tries > 80) { clearInterval(iv); reply({ akc: 'built', ok: false, error: 'EasyEDA не открыла новую схему' }); } return; }
+        if (!mine || libs.length < need) { if (tries > 80) { clearInterval(iv); reply({ akc: 'built', ok: false, error: 'EasyEDA не открыла новую схему' }); } return; }
         clearInterval(iv);
         // EasyEDA присваивает свои id — находим символы по обозначению (pre)
         var byRef = {};
@@ -65,6 +70,7 @@
           if (id && (m.dx || m.dy)) api('moveObjs', { objs: [id], addX: m.dx, addY: m.dy });
         });
         var doc = compress();
+        if (doc.head && doc.head.c_para) delete doc.head.c_para.AutoKiCadBuild;
         doc.shape = doc.shape.concat(p.rest);
         if (p.canvas) doc.canvas = p.canvas;
         api('applySource', { source: doc });
@@ -74,9 +80,20 @@
     }, 250);
   }
 
+  // Плата: новый документ платы с контуром, посадочными местами и цепями на площадках.
+  // Связи (ratlines) EasyEDA строит сама по именам цепей; дорожки — автотрассировкой или вручную.
+  function buildPcb(doc) {
+    try {
+      api('applySource', { source: doc, createNew: true });
+      reply({ akc: 'built', ok: true, kind: 'pcb' });
+      close();
+    } catch (e) { reply({ akc: 'built', ok: false, kind: 'pcb', error: String(e && e.message || e) }); }
+  }
+
   window.addEventListener('message', function (e) {
     if (!frame || e.source !== frame.contentWindow || !e.data || !e.data.akc) return;
     if (e.data.akc === 'build') build(e.data.payload);
+    if (e.data.akc === 'buildPcb') buildPcb(e.data.payload);
     if (e.data.akc === 'close') close();
   });
 

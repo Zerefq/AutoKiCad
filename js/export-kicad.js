@@ -130,7 +130,7 @@ AK.exportKicad = (function () {
       const just = a => a === 'start' ? ' (justify left)' : a === 'end' ? ' (justify right)' : '';
       out.push(`    (property "Reference" ${q(c.ref)} (at ${X(sy.x + s.ref[0])} ${Y(sy.y + s.ref[1])} 0) (effects (font (size 1.27 1.27))${just(s.ref[2])}))`);
       out.push(`    (property "Value" ${q(c.value || d.value)} (at ${X(sy.x + s.val[0])} ${Y(sy.y + s.val[1])} 0) (effects (font (size 1.27 1.27))${just(s.val[2])}))`);
-      out.push(`    (property "Footprint" ${q(d.footprint || '')} (at ${X(sy.x)} ${Y(sy.y)} 0) ${FONT_HIDE})`);
+      out.push(`    (property "Footprint" ${q(sy.comp.fp || d.footprint || '')} (at ${X(sy.x)} ${Y(sy.y)} 0) ${FONT_HIDE})`);
       out.push(`    (property "Datasheet" "~" (at ${X(sy.x)} ${Y(sy.y)} 0) ${FONT_HIDE})`);
       Object.keys(s.pins).forEach(p => out.push(`    (pin ${q(p)} (uuid ${q(U())}))`));
       out.push(`    ${inst(c.ref)}`);
@@ -180,7 +180,7 @@ AK.exportKicad = (function () {
     out.push('  (components');
     comps.forEach(c => {
       const d = AK.LIB[c.type];
-      out.push(`    (comp (ref ${q(c.ref)}) (value ${q(c.value || d.value)}) (footprint ${q(d.footprint || '')}) (libsource (lib "AutoKiCad") (part ${q(d.kicadName)}) (description ${q(d.name)})) (sheetpath (names "/") (tstamps "/")) (tstamps ${q(AK.util.uuid())}))`);
+      out.push(`    (comp (ref ${q(c.ref)}) (value ${q(c.value || d.value)}) (footprint ${q(c.fp || d.footprint || '')}) (libsource (lib "AutoKiCad") (part ${q(d.kicadName)}) (description ${q(d.name)})) (sheetpath (names "/") (tstamps "/")) (tstamps ${q(AK.util.uuid())}))`);
     });
     out.push('  )');
     out.push('  (nets');
@@ -209,13 +209,14 @@ AK.exportKicad = (function () {
   }
 
   // Готовый проект KiCad: .kicad_pro + .kicad_sch + библиотека + sym-lib-table, упакованные в zip
-  function projectZip(project, model, base) {
+  function projectZip(project, model, base, pcb) {
     const files = [
       [`${base}/${base}.kicad_pro`, JSON.stringify({ meta: { filename: base + '.kicad_pro', version: 1 } }, null, 2) + '\n'],
       [`${base}/${base}.kicad_sch`, sch(project, model)],
       [`${base}/AutoKiCad.kicad_sym`, symLib(model)],
       [`${base}/sym-lib-table`, '(sym_lib_table\n  (version 7)\n  (lib (name "AutoKiCad")(type "KiCad")(uri "${KIPRJMOD}/AutoKiCad.kicad_sym")(options "")(descr "Символы AutoKiCad"))\n)\n'],
     ];
+    if (pcb) files.push([`${base}/${base}.kicad_pcb`, pcb]);
     return AK.util.zip(files);
   }
 

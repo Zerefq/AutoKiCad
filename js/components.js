@@ -90,61 +90,67 @@ AK.LIB = (function () {
   const defs = {};
 
   // ---------- макетная плата: отверстия в одной полоске соединены, как у настоящей ----------
-  const BB_COLS = 30;
   const BB_ROWS = { a: -50, b: -40, c: -30, d: -20, e: -10, f: 20, g: 30, h: 40, i: 50, j: 60 };
   const BB_RAILS = [['TP', -90, '+', 'верх'], ['TN', -80, '−', 'верх'], ['BN', 90, '−', 'низ'], ['BP', 100, '+', 'низ']];
-  const bbX = i => (i - 15) * 10;
-  const bbPins = {}, bbNames = {}, bbGroups = [];
-  for (let i = 1; i <= BB_COLS; i++) {
-    ['abcde', 'fghij'].forEach(rows => {
+  // макетная плата на cols столбцов (half-size — 30, full-size — 60)
+  function breadboard(cols, name) {
+    const mid = cols / 2;
+    const bbX = i => (i - mid) * 10;
+    const x1 = bbX(1) - 20, x2 = bbX(cols) + 20, W = x2 - x1;
+    const bbPins = {}, bbNames = {}, bbGroups = [];
+    for (let i = 1; i <= cols; i++) {
+      ['abcde', 'fghij'].forEach(rows => {
+        const g = [];
+        for (const r of rows) { bbPins[r + i] = [bbX(i), BB_ROWS[r]]; g.push(r + i); }
+        bbGroups.push(g);
+      });
+    }
+    BB_RAILS.forEach(([id, y, sign, side]) => {
       const g = [];
-      for (const r of rows) { bbPins[r + i] = [bbX(i), BB_ROWS[r]]; g.push(r + i); }
+      for (let i = 1; i <= cols; i++) {
+        if (i % 6 === 0) continue; // отверстия шины идут группами по 5
+        bbPins[id + i] = [bbX(i), y];
+        bbNames[id + i] = `шина ${sign} (${side})`;
+        g.push(id + i);
+      }
       bbGroups.push(g);
     });
-  }
-  BB_RAILS.forEach(([id, y, sign, side]) => {
-    const g = [];
-    for (let i = 1; i <= BB_COLS; i++) {
-      if (i % 6 === 0) continue; // отверстия шины идут группами по 5
-      bbPins[id + i] = [bbX(i), y];
-      bbNames[id + i] = `шина ${sign} (${side})`;
-      g.push(id + i);
-    }
-    bbGroups.push(g);
-  });
-
-  defs.breadboard = {
-    name: 'Макетная плата', prefix: 'BB', cat: 'Макетная плата', value: '', virtual: true, board: true,
-    pinNames: bbNames, groups: bbGroups,
-    visual: {
-      box: [-160, -105, 330, 220],
-      pins: bbPins,
-      // st.on — занятые отверстия (в них ножка или провод)
-      draw(c, st) {
-        const on = st && st.on;
-        let s = `<rect x="-160" y="-105" width="330" height="220" rx="6" fill="#f4f2ec" stroke="#cdc6b4"/>` +
-          `<rect x="-156" y="1" width="322" height="8" rx="2" fill="#e2dccb"/>`;
-        [[-97, '#d32f2f'], [-73, '#1e66c8'], [83, '#1e66c8'], [107, '#d32f2f']].forEach(([y, col]) => {
-          s += `<line x1="-145" y1="${y}" x2="155" y2="${y}" stroke="${col}" stroke-width="1.2"/>`;
-        });
-        [1, 5, 10, 15, 20, 25, 30].forEach(i => { s += txt(bbX(i), -62, i, 5, '#9a9282') + txt(bbX(i), 72, i, 5, '#9a9282'); });
-        Object.entries(BB_ROWS).forEach(([r, y]) => { s += txt(-152, y, r, 5, '#9a9282') + txt(162, y, r, 5, '#9a9282'); });
-        BB_RAILS.forEach(([, y, sign]) => {
-          const col = sign === '+' ? '#d32f2f' : '#1e66c8';
-          s += txt(-152, y, sign, 8, col, 'font-weight="700"') + txt(162, y, sign, 8, col, 'font-weight="700"');
-        });
-        Object.entries(bbPins).forEach(([p, [x, y]]) => {
-          if (c.id) s += `<circle class="pin hole${on && on.has(c.id + ':' + p) ? ' on' : ''}" data-k="${c.id}:${p}" cx="${x}" cy="${y}" r="2.6"/>`;
-          else s += `<rect x="${x - 2}" y="${y - 2}" width="4" height="4" fill="#4a4e54"/>`;
-        });
-        return s;
+    return {
+      name, prefix: 'BB', cat: 'Макетная плата', value: '', virtual: true, board: true,
+      pinNames: bbNames, groups: bbGroups,
+      visual: {
+        box: [x1, -105, W, 220],
+        pins: bbPins,
+        // st.on — занятые отверстия (в них ножка или провод)
+        draw(c, st) {
+          const on = st && st.on;
+          let s = `<rect x="${x1}" y="-105" width="${W}" height="220" rx="6" fill="#f4f2ec" stroke="#cdc6b4"/>` +
+            `<rect x="${x1 + 4}" y="1" width="${W - 8}" height="8" rx="2" fill="#e2dccb"/>`;
+          [[-97, '#d32f2f'], [-73, '#1e66c8'], [83, '#1e66c8'], [107, '#d32f2f']].forEach(([y, col]) => {
+            s += `<line x1="${x1 + 15}" y1="${y}" x2="${x2 - 15}" y2="${y}" stroke="${col}" stroke-width="1.2"/>`;
+          });
+          for (let i = 1; i <= cols; i++) if (i === 1 || i % 5 === 0) s += txt(bbX(i), -62, i, 5, '#9a9282') + txt(bbX(i), 72, i, 5, '#9a9282');
+          Object.entries(BB_ROWS).forEach(([r, y]) => { s += txt(x1 + 8, y, r, 5, '#9a9282') + txt(x2 - 8, y, r, 5, '#9a9282'); });
+          BB_RAILS.forEach(([, y, sign]) => {
+            const col = sign === '+' ? '#d32f2f' : '#1e66c8';
+            s += txt(x1 + 8, y, sign, 8, col, 'font-weight="700"') + txt(x2 - 8, y, sign, 8, col, 'font-weight="700"');
+          });
+          Object.entries(bbPins).forEach(([p, [x, y]]) => {
+            if (c.id) s += `<circle class="pin hole${on && on.has(c.id + ':' + p) ? ' on' : ''}" data-k="${c.id}:${p}" cx="${x}" cy="${y}" r="2.6"/>`;
+            else s += `<rect x="${x - 2}" y="${y - 2}" width="4" height="4" fill="#4a4e54"/>`;
+          });
+          return s;
+        },
       },
-    },
-  };
+    };
+  }
+  defs.breadboard = breadboard(30, 'Макетная плата');
+  defs.breadboard_full = breadboard(60, 'Макетная плата (большая)');
 
   defs.resistor = {
     name: 'Резистор', prefix: 'R', cat: 'Пассивные', value: '10k', kicadName: 'R',
     footprint: 'Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal', eePackage: 'AXIAL-0.4',
+    fpAlt: ['Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal', 'Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal', 'Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P2.54mm_Vertical', 'Resistor_SMD:R_0805_2012Metric', 'Resistor_SMD:R_0603_1608Metric'],
     visual: {
       box: [-30, -8, 60, 16],
       hit: [-18, -8, 36, 16], // область захвата — только корпус, отверстия у ножек остаются доступны
@@ -169,6 +175,7 @@ AK.LIB = (function () {
   defs.capacitor = {
     name: 'Конденсатор', prefix: 'C', cat: 'Пассивные', value: '100n', kicadName: 'C',
     footprint: 'Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm', eePackage: 'CAP-D5.0',
+    fpAlt: ['Capacitor_THT:C_Disc_D3.0mm_W1.6mm_P2.50mm', 'Capacitor_SMD:C_0805_2012Metric', 'Capacitor_SMD:C_0603_1608Metric'],
     visual: {
       box: [-15, -16, 30, 36],
       hit: [-15, -16, 30, 24], // область захвата — только корпус, отверстия у ножек остаются доступны
@@ -189,6 +196,7 @@ AK.LIB = (function () {
   defs.electrolytic = {
     name: 'Электролит. конденсатор', prefix: 'C', cat: 'Пассивные', value: '10u', kicadName: 'CP',
     footprint: 'Capacitor_THT:CP_Radial_D5.0mm_P2.00mm', eePackage: 'CAP-TH_BD5.0-P2.00',
+    fpAlt: ['Capacitor_THT:CP_Radial_D6.3mm_P2.50mm', 'Capacitor_THT:CP_Radial_D8.0mm_P3.50mm', 'Capacitor_SMD:CP_Elec_5x5.4'],
     pinNames: { 1: '+', 2: '−' },
     visual: {
       box: [-14, -31, 28, 51],
@@ -212,6 +220,7 @@ AK.LIB = (function () {
   defs.led = {
     name: 'Светодиод', prefix: 'D', cat: 'Полупроводники', value: 'LED', kicadName: 'LED',
     footprint: 'LED_THT:LED_D5.0mm', eePackage: 'LED-TH-5MM',
+    fpAlt: ['LED_THT:LED_D3.0mm', 'LED_SMD:LED_0805_2012Metric', 'LED_SMD:LED_1206_3216Metric'],
     pinNames: { 1: 'K', 2: 'A' },
     props: [{ key: 'color', label: 'Цвет', options: LED_NAMES, def: 'red' }],
     visual: {
@@ -238,6 +247,7 @@ AK.LIB = (function () {
   defs.diode = {
     name: 'Диод', prefix: 'D', cat: 'Полупроводники', value: '1N4007', kicadName: 'D',
     footprint: 'Diode_THT:D_DO-41_SOD81_P10.16mm_Horizontal', eePackage: 'DO-41',
+    fpAlt: ['Diode_THT:D_DO-41_SOD81_P7.62mm_Horizontal', 'Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal', 'Diode_SMD:D_SMA'],
     pinNames: { 1: 'K', 2: 'A' },
     visual: {
       box: [-30, -7, 60, 14],
@@ -332,6 +342,7 @@ AK.LIB = (function () {
   defs.zener = {
     name: 'Стабилитрон', prefix: 'D', cat: 'Полупроводники', value: 'BZX55C5V1', kicadName: 'D_Zener',
     footprint: 'Diode_THT:D_DO-35_SOD27_P10.16mm_Horizontal', eePackage: 'DO-35',
+    fpAlt: ['Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal', 'Diode_SMD:D_MiniMELF'],
     pinNames: { 1: 'K', 2: 'A' },
     visual: {
       box: [-30, -6, 60, 12],
@@ -461,6 +472,7 @@ AK.LIB = (function () {
   defs.button = {
     name: 'Кнопка', prefix: 'SW', cat: 'Управление', value: 'BTN', kicadName: 'SW_Push',
     footprint: 'Button_Switch_THT:SW_PUSH_6mm', eePackage: 'KEY-6X6',
+    fpAlt: ['Button_Switch_THT:SW_PUSH_6mm_H5mm', 'Button_Switch_SMD:SW_SPST_TL3342'],
     visual: {
       box: [-20, -15, 40, 30],
       pins: { 1: [-20, 0], 2: [20, 0] },
@@ -596,7 +608,7 @@ AK.LIB = (function () {
   });
 
   defs.ne555 = {
-    name: 'Таймер NE555', prefix: 'U', cat: 'Микросхемы', value: 'NE555', kicadName: 'NE555',
+    name: 'Таймер NE555', refOnly: true, prefix: 'U', cat: 'Микросхемы', value: 'NE555', kicadName: 'NE555',
     footprint: 'Package_DIP:DIP-8_W7.62mm', eePackage: 'DIP-8',
     pinNames: { 1: 'GND', 2: 'TR', 3: 'Q', 4: 'R', 5: 'CV', 6: 'THR', 7: 'DIS', 8: 'VCC' },
     visual: DIP8(),
@@ -606,7 +618,7 @@ AK.LIB = (function () {
   };
 
   defs.lm358 = {
-    name: 'ОУ LM358 (×2)', prefix: 'U', cat: 'Микросхемы', value: 'LM358', kicadName: 'LM358',
+    name: 'ОУ LM358 (×2)', refOnly: true, prefix: 'U', cat: 'Микросхемы', value: 'LM358', kicadName: 'LM358',
     footprint: 'Package_DIP:DIP-8_W7.62mm', eePackage: 'DIP-8',
     pinNames: { 1: 'OUTA', 2: '-INA', 3: '+INA', 4: 'GND', 5: '+INB', 6: '-INB', 7: 'OUTB', 8: 'V+' },
     visual: DIP8(),
@@ -641,6 +653,96 @@ AK.LIB = (function () {
     },
   };
 
+  defs.attiny85 = {
+    name: 'Микроконтроллер ATtiny85', refOnly: true, prefix: 'U', cat: 'Микросхемы', value: 'ATtiny85', kicadName: 'ATtiny85',
+    footprint: 'Package_DIP:DIP-8_W7.62mm', eePackage: 'DIP-8',
+    pinNames: { 1: 'PB5/RST', 2: 'PB3', 3: 'PB4', 4: 'GND', 5: 'PB0', 6: 'PB1', 7: 'PB2', 8: 'VCC' },
+    visual: DIP8(),
+    sym: makeIC(
+      [['1', 'PB5/RST'], ['2', 'PB3'], ['3', 'PB4'], ['5', 'PB0'], ['6', 'PB1'], ['7', 'PB2']],
+      [['8', 'VCC', 'pwr'], ['4', 'GND', 'pwr']], 7),
+  };
+
+  // адресный RGB-светодиод: на макетке — модуль с четырьмя выводами, на плате — корпус 5050
+  defs.ws2812b = {
+    name: 'RGB-светодиод WS2812B', refOnly: true, prefix: 'LED', cat: 'Полупроводники', value: 'WS2812B', kicadName: 'WS2812B',
+    footprint: 'LED_SMD:LED_WS2812B_PLCC4_5.0x5.0mm_P3.2mm', eePackage: 'LED-SMD_4P-L5.0-W5.0',
+    pinNames: { 1: 'VDD', 2: 'DOUT', 3: 'VSS', 4: 'DIN' },
+    visual: {
+      box: [-19, -34, 38, 40],
+      hit: [-19, -34, 38, 30],
+      // порядок на модуле: DIN, VDD, GND, DOUT — цепочка идёт слева направо
+      pins: { 4: [-15, 0], 1: [-5, 0], 3: [5, 0], 2: [15, 0] },
+      draw() {
+        return leg(-15, -4, -15, 0) + leg(-5, -4, -5, 0) + leg(5, -4, 5, 0) + leg(15, -4, 15, 0) +
+          `<rect x="-19" y="-34" width="38" height="30" rx="2" fill="#1b1b1b" stroke="#000"/>` +
+          `<rect x="-9" y="-30" width="18" height="18" rx="1.5" fill="#f4f4f4" stroke="#bbb"/>` +
+          `<circle cx="0" cy="-21" r="6" fill="#fff" stroke="#ddd"/>` +
+          [['DI', -15], ['5V', -5], ['G', 5], ['DO', 15]].map(([t, x]) => txt(x, -8, t, 4, '#ccc')).join('');
+      },
+    },
+    sym: {
+      gfx: [RECT(-2, -1.5, 2, 1.5, 'body'), TXT(0, 0.6, 'RGB', 0.6)],
+      pins: {
+        4: pin(-3, 0, 'R', 1, { name: 'DIN', type: 'in' }), 2: pin(3, 0, 'L', 1, { name: 'DOUT', type: 'out' }),
+        1: pin(0, -3, 'D', 1.5, { name: 'VDD', type: 'pwr' }), 3: pin(0, 3, 'U', 1.5, { name: 'VSS', type: 'pwr' }),
+      },
+      ref: [2.2, -2, 'start'], val: [2.2, 2.4, 'start'],
+      showNames: true,
+    },
+  };
+
+  // USB-C (питание + D+/D−): на макетке — переходная плата, на плате — разъём HRO TYPE-C-31-M-12
+  defs.usbc = {
+    name: 'Разъём USB-C', refOnly: true, prefix: 'USB', cat: 'Разъёмы', value: 'USB-C', kicadName: 'USB_C_Receptacle_USB2.0',
+    footprint: 'Connector_USB:USB_C_Receptacle_HRO_TYPE-C-31-M-12', eePackage: 'USB-C-SMD_TYPE-C-31-M-12',
+    pinNames: { CC1: 'CC1', VBUS: 'VBUS', GND: 'GND', CC2: 'CC2', DN: 'D−', DP: 'D+' },
+    pinPower: { VBUS: '+5V', GND: 'GND' },
+    // площадки разъёма → выводы (SBU не подключены)
+    padMap: {
+      A1: 'GND', A12: 'GND', B1: 'GND', B12: 'GND', SH: 'GND',
+      A4: 'VBUS', A9: 'VBUS', B4: 'VBUS', B9: 'VBUS',
+      A5: 'CC1', B5: 'CC2', A6: 'DP', B6: 'DP', A7: 'DN', B7: 'DN',
+    },
+    visual: {
+      box: [-31, -6, 62, 42],
+      hit: [-31, 4, 62, 32],
+      pins: { CC1: [-25, 0], VBUS: [-15, 0], GND: [-5, 0], CC2: [5, 0], DN: [15, 0], DP: [25, 0] },
+      draw() {
+        let s = `<rect x="-31" y="4" width="62" height="32" rx="2" fill="#1d4e9e" stroke="#0e2c5c"/>` +
+          `<rect x="-11" y="24" width="22" height="12" rx="4" fill="#c7ccd1" stroke="#7d848b"/><rect x="-7" y="28" width="14" height="4" rx="2" fill="#555"/>`;
+        [['CC1', -25], ['5V', -15], ['G', -5], ['CC2', 5], ['D−', 15], ['D+', 25]].forEach(([t, x]) => { s += leg(x, 0, x, 6) + txt(x, 12, t, 4.2, '#fff'); });
+        return s;
+      },
+    },
+    sym: {
+      gfx: [RECT(-2, -3, 2, 3, 'body')],
+      pins: {
+        VBUS: pin(4, -2, 'L', 2, { name: 'VBUS' }), CC1: pin(4, -1, 'L', 2, { name: 'CC1' }), CC2: pin(4, 0, 'L', 2, { name: 'CC2' }),
+        DP: pin(4, 1, 'L', 2, { name: 'D+' }), DN: pin(4, 2, 'L', 2, { name: 'D−' }), GND: pin(0, 4, 'U', 1, { name: 'GND' }),
+      },
+      ref: [-2, -3.6, 'start'], val: [0.6, 4.2, 'start'],
+      showNames: true,
+    },
+  };
+
+  // контакт / монтажное отверстие с металлизацией (на плате — кольцо с отверстием)
+  defs.mhole = {
+    name: 'Контакт (отверстие)', prefix: 'H', cat: 'Разъёмы', value: 'Pad', kicadName: 'TestPoint_Hole',
+    footprint: 'MountingHole:MountingHole_2.2mm_M2_Pad',
+    fpAlt: ['TestPoint:TestPoint_THTPad_D3.0mm_Drill1.5mm', 'TestPoint:TestPoint_THTPad_D4.0mm_Drill2.0mm', 'MountingHole:MountingHole_3.2mm_M3_Pad'],
+    visual: {
+      box: [-8, -8, 16, 16],
+      pins: { 1: [0, 0] },
+      draw() { return `<circle cx="0" cy="0" r="7" fill="#d4af37" stroke="#9c7f23"/><circle cx="0" cy="0" r="3.2" fill="#f4f2ec" stroke="#9c7f23"/>`; },
+    },
+    sym: {
+      gfx: [CIRC(0, -0.4, 0.4)],
+      pins: { 1: pin(0, 1, 'U', 1) },
+      ref: [0.7, -0.6, 'start'], val: [0.7, 0.3, 'start'],
+    },
+  };
+
   // Arduino Nano: номера выводов как в KiCad Module:Arduino_Nano
   const nanoTop = [[15, 'D12'], [14, 'D11'], [13, 'D10'], [12, 'D9'], [11, 'D8'], [10, 'D7'], [9, 'D6'], [8, 'D5'], [7, 'D4'], [6, 'D3'], [5, 'D2'], [4, 'GND'], [3, 'RST'], [2, 'RX0'], [1, 'TX1']];
   const nanoBot = [[16, 'D13'], [17, '3V3'], [18, 'AREF'], [19, 'A0'], [20, 'A1'], [21, 'A2'], [22, 'A3'], [23, 'A4'], [24, 'A5'], [25, 'A6'], [26, 'A7'], [27, '5V'], [28, 'RST'], [29, 'GND'], [30, 'VIN']];
@@ -650,7 +752,7 @@ AK.LIB = (function () {
   nanoNames[1] = 'D1/TX'; nanoNames[2] = 'D0/RX';
 
   defs.nano = {
-    name: 'Arduino Nano', prefix: 'A', cat: 'Микросхемы', value: 'Arduino_Nano', kicadName: 'Arduino_Nano',
+    name: 'Arduino Nano', refOnly: true, prefix: 'A', cat: 'Микросхемы', value: 'Arduino_Nano', kicadName: 'Arduino_Nano',
     footprint: 'Module:Arduino_Nano', eePackage: 'ARDUINO-NANO',
     pinNames: nanoNames,
     pinPower: { 4: 'GND', 29: 'GND', 27: '+5V', 17: '+3V3', 30: 'VIN' },

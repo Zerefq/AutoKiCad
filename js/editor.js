@@ -83,7 +83,8 @@ AK.Editor = class {
         d.visual.draw(c, { on: connected }) + (d.board ? '' : `<rect class="hit" x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="transparent"/>`) + '</g>';
       const wb = AK.compWorldBox(c);
       if (isSel) labels += `<rect class="selbox" x="${wb.x - 4}" y="${wb.y - 4}" width="${wb.w + 8}" height="${wb.h + 8}" rx="4"/>`;
-      const label = e(c.ref) + (c.value && d.type !== 'nano' && d.type !== 'ne555' ? ' · ' + e(c.value) : '');
+      // у микросхем и модулей номинал напечатан на корпусе — в подписи только обозначение
+      const label = e(c.ref) + (c.value && !d.refOnly ? ' · ' + e(c.value) : '');
       // у вертикально стоящих компонентов подпись сбоку, чтобы не закрывать соседние отверстия
       if (!d.virtual && wb.h > wb.w * 1.6 && d.type !== 'electrolytic') labels += `<text class="ref side" x="${wb.x + wb.w + 3}" y="${wb.y + wb.h / 2 + 3}">${label}</text>`;
       else if (!d.virtual) labels += `<text class="ref" x="${wb.x + wb.w / 2}" y="${wb.y - 6}">${label}</text>`;

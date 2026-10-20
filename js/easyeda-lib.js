@@ -156,6 +156,61 @@ AK.EE = (function () {
     });
   }
 
+  // посадочное место EasyEDA → формат AK.FOOTPRINTS (мм от начала координат посадочного места)
+  function fpFromPackage(pk) {
+    if (!pk || !pk.shape || !pk.head) return null;
+    const ox = +pk.head.x || 0, oy = +pk.head.y || 0, MM = 0.254;
+    const r3 = v => Math.round(v * 1000) / 1000;
+    const X = v => r3((v - ox) * MM), Y = v => r3((v - oy) * MM);
+    const out = { pads: [], silk: [], fab: [], crt: null };
+    pk.shape.forEach(s => {
+      const f = s.split('~');
+      if (f[0] === 'PAD') {
+        const pts = (f[10] || '').trim().split(/\s+/).map(Number).filter(v => !isNaN(v));
+        let w = +f[4] * MM, h = +f[5] * MM, rot = +f[11] || 0, sh = { ELLIPSE: 'circle', OVAL: 'oval', RECT: 'rect', POLYGON: 'rect' }[f[1]] || 'rect';
+        // у прямоугольной и многоугольной площадки размеры и поворот — по углам контура
+        if ((f[1] === 'RECT' || f[1] === 'POLYGON') && pts.length >= 8) {
+          const P = []; for (let i = 0; i + 1 < pts.length; i += 2) P.push([pts[i], pts[i + 1]]);
+          if (f[1] === 'RECT') {
+            w = Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]) * MM;
+            h = Math.hypot(P[2][0] - P[1][0], P[2][1] - P[1][1]) * MM;
+            rot = Math.atan2(P[1][1] - P[0][1], P[1][0] - P[0][0]) * 180 / Math.PI;
+          } else {
+            const xs = P.map(p => p[0]), ys = P.map(p => p[1]);
+            w = (Math.max(...xs) - Math.min(...xs)) * MM; h = (Math.max(...ys) - Math.min(...ys)) * MM; rot = 0;
+          }
+        }
+        if (sh === 'circle' && Math.abs(w - h) > 0.01) sh = 'oval';
+        const holeR = +f[9] || 0, slot = +f[13] || 0;
+        const p = { n: f[8], k: holeR > 0 ? 'thru_hole' : 'smd', sh, x: X(+f[2]), y: Y(+f[3]), w: r3(w), h: r3(h), l: f[6] === '11' ? '*' : f[6] === '2' ? 'B' : 'F' };
+        if (Math.abs(rot) > 0.01) p.r = r3(((rot % 360) + 360) % 360);
+        if (holeR > 0) p.d = slot > 0 ? (w >= h ? [r3((holeR * 2 + slot) * MM), r3(holeR * 2 * MM)] : [r3(holeR * 2 * MM), r3((holeR * 2 + slot) * MM)]) : r3(holeR * 2 * MM);
+        if (holeR > 0 && f[15] === 'N') p.k = 'np_thru_hole';
+        out.pads.push(p);
+      } else if (f[0] === 'HOLE') {
+        const d = r3(+f[3] * 2 * MM);
+        out.pads.push({ n: '', k: 'np_thru_hole', sh: 'circle', x: X(+f[1]), y: Y(+f[2]), w: d, h: d, d, l: '*' });
+      } else if (f[0] === 'TRACK' && f[2] === '3') {
+        const v = f[4].trim().split(/\s+/).map(Number), p = [];
+        for (let i = 0; i + 1 < v.length; i += 2) p.push([X(v[i]), Y(v[i + 1])]);
+        if (p.length > 1) out.silk.push({ w: r3(+f[1] * MM), p });
+      } else if (f[0] === 'CIRCLE' && f[5] === '3') {
+        const cx = +f[1], cy = +f[2], r = +f[3], p = [];
+        for (let k = 0; k <= 24; k++) p.push([X(cx + r * Math.cos(k * Math.PI / 12)), Y(cy + r * Math.sin(k * Math.PI / 12))]);
+        out.silk.push({ w: r3(+f[4] * MM), p });
+      } else if (f[0] === 'ARC' && f[2] === '3') {
+        pathToPolylines(f[4]).forEach(line => { if (line.length > 1) out.silk.push({ w: r3(+f[1] * MM), p: line.map(([x, y]) => [X(x), Y(y)]) }); });
+      }
+    });
+    if (!out.pads.length) return null;
+    let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+    const add = (x, y) => { x1 = Math.min(x1, x); y1 = Math.min(y1, y); x2 = Math.max(x2, x); y2 = Math.max(y2, y); };
+    out.pads.forEach(p => { const r = Math.max(p.w, p.h) / 2; add(p.x - r, p.y - r); add(p.x + r, p.y + r); });
+    out.silk.forEach(l => l.p.forEach(([x, y]) => add(x, y)));
+    out.crt = [r3(x1 - 0.25), r3(y1 - 0.25), r3(x2 + 0.25), r3(y2 + 0.25)];
+    return out;
+  }
+
   // раскладка выводов: по посадочному месту, если оно выводное и с шагом 0.1", иначе — запасная
   function pinLayout(nums, pads) {
     const tht = pads.filter(p => p.tht && nums.includes(p.num));
@@ -280,7 +335,7 @@ AK.EE = (function () {
     const d = {
       type, name: part.title, prefix, cat: 'Из библиотеки EasyEDA', value, kicadName: (part.title + (cp['Supplier Part'] ? '_' + cp['Supplier Part'] : '')).replace(/[^\w.+-]+/g, '_'),
       footprint: '', eePackage: cp.package || '', lcsc: (part.lcsc && part.lcsc.number) || cp['Supplier Part'] || '',
-      sym, ee: { uuid: part.uuid, origin, head: ds.head, shapes: ds.shape },
+      sym, ee: { uuid: part.uuid, origin, head: ds.head, shapes: ds.shape, fp: fpFromPackage(part.packageDetail && part.packageDetail.dataStr), fpName: (part.packageDetail && part.packageDetail.title) || cp.package || '' },
       fromLibrary: true,
     };
     d.visual = makeVisual(part, prefix, sym);
@@ -338,5 +393,5 @@ AK.EE = (function () {
     return /(^|\.)easyeda\.com$/.test(host || '');
   };
 
-  return { search, fetchPart, defFromPart, register, slim, pathToPolylines, available, ATTRIBUTION: 'JLCEDA/EasyEDA Official Library · https://lceda.cn/ · https://easyeda.com' };
+  return { search, fetchPart, defFromPart, register, slim, pathToPolylines, fpFromPackage, available, ATTRIBUTION: 'JLCEDA/EasyEDA Official Library · https://lceda.cn/ · https://easyeda.com' };
 })();

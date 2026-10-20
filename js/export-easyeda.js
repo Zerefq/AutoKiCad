@@ -77,7 +77,7 @@ AK.exportEasyEDA = function (project, model, opts) {
     });
     const para = d.ee ? libPara(d, c) : [
       'package', clean(d.eePackage || ''), 'pre', clean(c.ref), 'spicePre', d.prefix,
-      'nameAlias', 'Value', 'Value', clean(c.value || d.value), 'Footprint(KiCad)', clean(d.footprint || ''), 'Contributor', 'AutoKiCad',
+      'nameAlias', 'Value', 'Value', clean(c.value || d.value), 'Footprint(KiCad)', clean(c.fp || d.footprint || ''), 'Contributor', 'AutoKiCad',
     ].join('`') + '`';
     // поля заголовка: x, y, c_para, rotation, importFlag, gId, puuid, uuid, locked
     shapes.push(`LIB~${X(sy.x)}~${Y(sy.y)}~${para}~0~0~${id()}~~~0#@$${sub.join('#@$')}`);

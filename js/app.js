@@ -13,6 +13,7 @@ AK.App = class {
     this.project = (/demo/.test(location.search) && AK.demoProject()) || this.load() || AK.emptyProject();
     this.editor = new AK.Editor(document.getElementById('board'), this);
     this.schView = new AK.SchView(document.getElementById('sch'), this);
+    this.pcbView = new AK.PcbView(document.getElementById('pcb'), this);
     this.buildPalette();
     this.bindUI();
     this.changed({ noSave: true });
@@ -59,7 +60,8 @@ AK.App = class {
     this.nl = null; this.sch = null;
     if (!opts.noSave) this.save();
     this.editor.render();
-    if (this.tab !== 'board') this.showSchematic(opts.keepView || opts.schOnly);
+    if (this.tab === 'split' || this.tab === 'sch') this.showSchematic(opts.keepView || opts.schOnly);
+    if (this.tab === 'pcb') this.pcbView.render();
     this.renderInspector();
     this.renderProjectParts();
   }
@@ -101,20 +103,27 @@ AK.App = class {
   }
 
   // ---------------- вкладки ----------------
-  // board — только монтаж, split — монтаж и схема рядом, sch — только схема
+  // board — только монтаж, split — монтаж и схема рядом, sch — только схема, pcb — печатная плата
   setTab(tab) {
     const resize = (tab === 'split') !== (this.tab === 'split');
+    const firstPcb = tab === 'pcb' && !this.pcbShown;
     this.tab = tab;
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     // у SVG-элементов нет свойства .hidden — работаем с атрибутом
-    document.getElementById('board').toggleAttribute('hidden', tab === 'sch');
-    document.getElementById('sch').toggleAttribute('hidden', tab === 'board');
+    document.getElementById('board').toggleAttribute('hidden', tab === 'sch' || tab === 'pcb');
+    document.getElementById('sch').toggleAttribute('hidden', tab === 'board' || tab === 'pcb');
+    document.getElementById('pcb').toggleAttribute('hidden', tab !== 'pcb');
     document.querySelector('.stage').classList.toggle('split', tab === 'split');
-    document.getElementById('palette').classList.toggle('dim', tab === 'sch');
+    document.getElementById('palette').classList.toggle('dim', tab === 'sch' || tab === 'pcb');
     this.editor.cancel();
-    this.hint(tab === 'sch' ? 'Схема построена автоматически. Перетаскивайте символы — провода перестроятся.' : '');
-    if (tab !== 'board') this.showSchematic(false);
-    if (resize && tab !== 'sch') requestAnimationFrame(() => this.editor.fit());
+    this.hint(tab === 'sch' ? 'Схема построена автоматически. Перетаскивайте символы — провода перестроятся.'
+      : tab === 'pcb' ? 'Плата: перетаскивайте детали, R — поворот на 90° (Shift+R — на 45°). Пунктир — связи, которые нужно развести дорожками.' : '');
+    if (tab === 'split' || tab === 'sch') this.showSchematic(false);
+    if (tab === 'pcb') {
+      this.pcbView.render();
+      if (firstPcb) { this.pcbShown = true; requestAnimationFrame(() => this.pcbView.fit()); }
+    }
+    if (resize && tab !== 'sch' && tab !== 'pcb') requestAnimationFrame(() => this.editor.fit());
     this.renderInspector();
   }
 
@@ -237,6 +246,12 @@ AK.App = class {
     this.toast('Создаю схему в EasyEDA…');
   }
 
+  sendPcbToEasyEDA() {
+    if (!this.project.components.some(c => AK.PCB.footprint(c))) { this.toast('Сначала добавьте компоненты'); return; }
+    window.parent.postMessage({ akc: 'buildPcb', payload: AK.PCB.exportEasyEDA(this.project, this.netlist()) }, '*');
+    this.toast('Создаю плату в EasyEDA…');
+  }
+
   // ---------------- инспектор ----------------
   renderInspector() {
     const el = document.getElementById('inspector'), e = AK.util.esc;
@@ -247,6 +262,11 @@ AK.App = class {
     const multi = sel && sel.kind === 'multi' ? this.project.components.filter(c => sel.ids.includes(c.id)) : null;
     const wire = sel && sel.kind === 'wire' ? this.project.wires.find(w => w.id === sel.id) : null;
 
+    if (this.tab === 'pcb') {
+      el.innerHTML = this.pcbInspector(comp);
+      this.bindPcbInspector(el, comp);
+      return;
+    }
     if (multi) {
       h += `<h3>Выделено: ${multi.length}</h3>`;
       h += `<div class="muted">${e(multi.map(c => AK.LIB[c.type].virtual ? AK.LIB[c.type].name : c.ref).join(', '))}</div>`;
@@ -263,7 +283,7 @@ AK.App = class {
         const opts = Object.entries(p.options).map(([k, v]) => `<option value="${e(k)}"${comp.props[p.key] === k ? ' selected' : ''}>${e(v)}</option>`).join('');
         h += field(p.label, `<select data-p="${p.key}">${opts}</select>`);
       });
-      if (d.footprint) h += `<div class="muted small">Корпус KiCad: <code>${e(d.footprint)}</code></div>`;
+      if (!d.virtual) h += this.fpSelect(comp);
       if (d.fromLibrary) h += `<div class="muted small">Из библиотеки EasyEDA · корпус <code>${e(d.eePackage)}</code>${d.lcsc ? ` · LCSC <code>${e(d.lcsc)}</code>` : ''}${d.visual.fromFootprint ? '' : '<br>Выводы показаны с шагом 2.54 мм (SMD или другой шаг)'}</div>`;
       h += `<div class="btnrow"><button data-a="rot">⟳ Повернуть <kbd>R</kbd></button><button data-a="dup">Копия <kbd>Ctrl+D</kbd></button><button data-a="del" class="danger">Удалить <kbd>Del</kbd></button></div>`;
       if (!d.virtual) {
@@ -329,6 +349,11 @@ AK.App = class {
       if (s.dataset.p === 'net') comp.value = s.value;
       this.changed({ keepView: true });
     }));
+    el.querySelectorAll('[data-fp]').forEach(s => s.addEventListener('change', () => {
+      this.checkpoint();
+      if (s.value === AK.LIB[comp.type].footprint) delete comp.fp; else comp.fp = s.value;
+      this.changed({ keepView: true });
+    }));
     el.querySelectorAll('input[data-proj]').forEach(inp => inp.addEventListener('change', () => {
       this.project.name = inp.value.trim();
       this.save();
@@ -346,6 +371,97 @@ AK.App = class {
       if (a === 'del') this.editor.deleteSelection();
       if (a === 'fit') this.schView.fit();
       if (a === 'relayout') this.relayout();
+    }));
+  }
+
+  // выбор посадочного места (основное + альтернативы из библиотеки)
+  fpSelect(comp) {
+    const d = AK.LIB[comp.type], e = AK.util.esc;
+    const list = [d.footprint].concat(d.fpAlt || []).filter(Boolean);
+    if (list.length < 2) return d.footprint ? `<div class="muted small">Посадочное место: <code>${e(d.footprint)}</code></div>` : '';
+    const cur = comp.fp || d.footprint;
+    return `<label class="field"><span>Посадочное место</span><select data-fp>${list.map(f => `<option value="${e(f)}"${f === cur ? ' selected' : ''}>${e(f.split(':').pop())}</option>`).join('')}</select></label>`;
+  }
+
+  // ---------------- инспектор платы ----------------
+  pcbInspector(comp) {
+    const e = AK.util.esc, P = this.project, pcb = AK.PCB.ensure(P);
+    const field = (label, inner) => `<label class="field"><span>${e(label)}</span>${inner}</label>`;
+    let h = '';
+    const part = comp && pcb.parts[comp.id];
+    if (comp && part) {
+      const d = AK.LIB[comp.type];
+      h += `<h3>${e(comp.ref)} · ${e(d.name)}</h3>`;
+      h += field('X, мм', `<input type="number" step="0.1" data-pp="x" value="${part.x}">`);
+      h += field('Y, мм', `<input type="number" step="0.1" data-pp="y" value="${part.y}">`);
+      h += field('Поворот, °', `<input type="number" step="15" data-pp="rot" value="${part.rot || 0}">`);
+      h += this.fpSelect(comp);
+      h += `<div class="btnrow"><button data-pa="rot90">⟳ 90° <kbd>R</kbd></button><button data-pa="rot45">⟳ 45° <kbd>Shift+R</kbd></button></div>`;
+      const pads = AK.PCB.pads(P, this.netlist()).filter(p => p.c === comp && p.p.k !== 'np_thru_hole');
+      h += '<h4>Площадки</h4><table class="pins">' + pads.map(p => `<tr><td>${e(p.p.n)}</td><td>${e(p.pin ? AK.pinName(comp.type, p.pin) : '—')}</td><td>${p.net ? `<span class="net">${e(p.net)}</span>` : '<span class="muted">—</span>'}</td></tr>`).join('') + '</table>';
+      return h;
+    }
+    const sh = pcb.shape || { type: 'auto' };
+    h += '<h3>Печатная плата</h3>';
+    h += field('Форма', `<select data-shape="type">${Object.entries(AK.PCB.SHAPES).filter(([k]) => k !== 'poly' || sh.type === 'poly').map(([k, v]) => `<option value="${k}"${sh.type === k ? ' selected' : ''}>${e(v)}</option>`).join('')}</select>`);
+    if (sh.type === 'rect' || sh.type === 'heart' || sh.type === 'circle') {
+      h += field(sh.type === 'circle' ? 'Диаметр, мм' : 'Ширина, мм', `<input type="number" step="1" min="5" data-shape="w" value="${sh.w || 50}">`);
+      if (sh.type !== 'circle') h += field('Высота, мм', `<input type="number" step="1" min="5" data-shape="h" value="${sh.h || 40}">`);
+      h += field('Сдвиг контура X / Y, мм', `<div class="row2"><input type="number" step="0.5" data-shape="x" value="${sh.x || 0}"><input type="number" step="0.5" data-shape="y" value="${sh.y || 0}"></div>`);
+    }
+    h += field('Цвет маски (только вид)', `<select data-pcb="color">${Object.entries(AK.PCB.COLORS).map(([k, [n]]) => `<option value="${k}"${pcb.color === k ? ' selected' : ''}>${e(n)}</option>`).join('')}</select>`);
+    const ol = AK.PCB.outline(P);
+    const w = Math.max(...ol.map(p => p[0])) - Math.min(...ol.map(p => p[0])), hh = Math.max(...ol.map(p => p[1])) - Math.min(...ol.map(p => p[1]));
+    const all = AK.PCB.pads(P, this.netlist());
+    const rats = AK.PCB.ratsnest(all);
+    const missing = P.components.filter(c => !AK.LIB[c.type].virtual && !AK.PCB.footprint(c));
+    h += `<div class="stats"><div><b>${Object.keys(pcb.parts).length}</b><span>деталей</span></div><div><b>${all.length}</b><span>площадок</span></div><div><b>${rats.length}</b><span>связей</span></div></div>`;
+    h += `<div class="muted small">Размер платы: ${AK.util.fmt(w, 1)} × ${AK.util.fmt(hh, 1)} мм</div>`;
+    if (missing.length) h += `<div class="warn warn">Нет посадочного места: ${e(missing.map(c => c.ref).join(', '))}</div>`;
+    h += `<div class="btnrow"><button data-pa="fit">Вписать</button><button data-pa="rearrange">↺ Разложить детали заново</button></div>`;
+    h += `<h4>Как пользоваться</h4><ol class="help">
+      <li>Детали уже на плате — перетащите их на свои места. <kbd>R</kbd> — поворот на 90°, <kbd>Shift+R</kbd> — на 45°, стрелки — сдвиг на 0.5 мм.</li>
+      <li>Форму и размер платы задайте слева сверху в этой панели.</li>
+      <li>Голубой пунктир — связи. Дорожки проводятся в EasyEDA (автотрассировка или вручную) или в KiCad.</li>
+      <li>${AK.EMBED ? 'Кнопка <b>«Создать плату в EasyEDA»</b> откроет её в редакторе плат.' : '<b>Экспорт → EasyEDA Standard — плата</b> или <b>KiCad — плата</b>.'}</li></ol>`;
+    return h;
+  }
+
+  bindPcbInspector(el, comp) {
+    const P = this.project;
+    const redraw = () => { this.save(); this.pcbView.render(); this.renderInspector(); };
+    el.querySelectorAll('[data-pp]').forEach(inp => inp.addEventListener('change', () => {
+      const v = parseFloat(inp.value);
+      if (!isFinite(v)) return;
+      this.checkpoint();
+      P.pcb.parts[comp.id][inp.dataset.pp] = inp.dataset.pp === 'rot' ? ((v % 360) + 360) % 360 : v;
+      redraw();
+    }));
+    el.querySelectorAll('[data-fp]').forEach(s => s.addEventListener('change', () => {
+      this.checkpoint();
+      const d = AK.LIB[comp.type];
+      if (s.value === d.footprint) delete comp.fp; else comp.fp = s.value;
+      this.changed({ keepView: true });
+    }));
+    el.querySelectorAll('[data-shape]').forEach(inp => inp.addEventListener('change', () => {
+      this.checkpoint();
+      const sh = P.pcb.shape = Object.assign({}, P.pcb.shape);
+      const k = inp.dataset.shape;
+      if (k === 'type') {
+        // размер новой формы — по уже расставленным деталям
+        const b = AK.PCB.partsBBox(P);
+        if (b && !sh.w) { sh.w = Math.ceil(b.x2 - b.x1 + 6); sh.h = Math.ceil(b.y2 - b.y1 + 6); sh.x = Math.floor(b.x1 - 3); sh.y = Math.floor(b.y1 - 3); }
+        sh.type = inp.value;
+      } else sh[k] = parseFloat(inp.value) || 0;
+      redraw();
+    }));
+    el.querySelectorAll('[data-pcb]').forEach(s => s.addEventListener('change', () => { P.pcb[s.dataset.pcb] = s.value; redraw(); }));
+    el.querySelectorAll('[data-pa]').forEach(b => b.addEventListener('click', () => {
+      const a = b.dataset.pa;
+      if (a === 'rot90') this.pcbView.rotateSel(90);
+      if (a === 'rot45') this.pcbView.rotateSel(45);
+      if (a === 'fit') this.pcbView.fit();
+      if (a === 'rearrange') { this.checkpoint(); P.pcb.parts = {}; redraw(); this.pcbView.fit(); }
     }));
   }
 
@@ -395,10 +511,12 @@ AK.App = class {
     const nl = this.netlist(), m = this.schematic();
     if (kind !== 'project' && !m.symbols.length) { this.toast('Сначала добавьте компоненты'); return; }
     if (kind === 'kicadzip') {
-      const zip = AK.exportKicad.projectZip(this.project, m, base);
+      const zip = AK.exportKicad.projectZip(this.project, m, base, AK.PCB.exportKicad(this.project, nl));
       AK.util.download(base + '_kicad.zip', new Blob([zip], { type: 'application/zip' }));
       this.toast('Проект KiCad сохранён (.zip) — распакуйте и откройте .kicad_pro');
     }
+    if (kind === 'kicadpcb') { AK.util.download(base + '.kicad_pcb', AK.PCB.exportKicad(this.project, nl)); this.toast('Плата KiCad сохранена (.kicad_pcb)'); }
+    if (kind === 'eepcb') { AK.util.download(base + '_pcb_easyeda.json', JSON.stringify(AK.PCB.exportEasyEDA(this.project, nl)), 'application/json'); this.toast('Плата EasyEDA сохранена: Документ → Открыть → EasyEDA Source'); }
     if (kind === 'kicad') { AK.util.download(base + '.kicad_sch', AK.exportKicad.sch(this.project, m)); this.toast('Схема KiCad сохранена (.kicad_sch)'); }
     if (kind === 'net') { AK.util.download(base + '.net', AK.exportKicad.netlist(this.project, nl)); this.toast('Netlist сохранён (.net)'); }
     if (kind === 'easyeda') { AK.util.download(base + '_easyeda.json', AK.exportEasyEDA(this.project, m), 'application/json'); this.toast('Исходник EasyEDA сохранён (.json)'); }
@@ -455,9 +573,13 @@ AK.App = class {
       b.className = 'primary'; b.id = 'btnToEE';
       b.textContent = 'Создать схему в EasyEDA';
       b.addEventListener('click', () => this.sendToEasyEDA());
-      document.querySelector('.actions').prepend(b);
+      const bp = document.createElement('button');
+      bp.className = 'primary'; bp.id = 'btnToEEPcb';
+      bp.textContent = 'Создать плату в EasyEDA';
+      bp.addEventListener('click', () => this.sendPcbToEasyEDA());
+      document.querySelector('.actions').prepend(b, bp);
       window.addEventListener('message', e => {
-        if (e.data && e.data.akc === 'built') this.toast(e.data.ok ? 'Схема создана в EasyEDA' : 'Ошибка EasyEDA: ' + e.data.error);
+        if (e.data && e.data.akc === 'built') this.toast(e.data.ok ? (e.data.kind === 'pcb' ? 'Плата создана в EasyEDA' : 'Схема создана в EasyEDA') : 'Ошибка EasyEDA: ' + e.data.error);
       });
     }
     document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => this.setTab(b.dataset.tab)));
@@ -489,7 +611,7 @@ AK.App = class {
     }));
     document.addEventListener('click', e => dds.forEach(dd => { if (!dd.contains(e.target)) dd.classList.remove('open'); }));
 
-    const view = () => (this.tab === 'sch' ? this.schView : this.editor);
+    const view = () => (this.tab === 'sch' ? this.schView : this.tab === 'pcb' ? this.pcbView : this.editor);
     $('zoomIn').addEventListener('click', () => view().zoomBy(1.25));
     $('zoomOut').addEventListener('click', () => view().zoomBy(1 / 1.25));
     $('zoomFit').addEventListener('click', () => view().fit());
@@ -500,6 +622,13 @@ AK.App = class {
       if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'я')) { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); return; }
       if ((e.ctrlKey || e.metaKey) && (k === 'y' || k === 'н')) { e.preventDefault(); this.redo(); return; }
       if ((e.ctrlKey || e.metaKey) && (k === 's' || k === 'ы')) { e.preventDefault(); this.exportAs('project'); return; }
+      if (this.tab === 'pcb') {
+        const pv = this.pcbView, arrows = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] };
+        if (k === 'r' || k === 'к') { pv.rotateSel(e.shiftKey ? 45 : 90); return; }
+        if (arrows[k]) { e.preventDefault(); const st = e.shiftKey ? 2.54 : 0.5; pv.nudge(arrows[k][0] * st, arrows[k][1] * st); return; }
+        if (k === 'escape') { this.select(null); pv.render(); return; }
+        return;
+      }
       if (this.tab === 'sch') return;
       const ed = this.editor, ctrl = e.ctrlKey || e.metaKey;
       if (ctrl && (k === 'd' || k === 'в')) { e.preventDefault(); ed.duplicateSelection(); return; }
@@ -515,7 +644,7 @@ AK.App = class {
       const ci = '12345678'.indexOf(e.key);
       if (ci >= 0) { this.editor.wireColor = ci; this.toast('Цвет нового провода изменён'); }
     });
-    window.addEventListener('resize', () => { this.editor.applyView(); if (this.tab !== 'board') this.schView.fit(); });
+    window.addEventListener('resize', () => { this.editor.applyView(); if (this.tab === 'split' || this.tab === 'sch') this.schView.fit(); if (this.tab === 'pcb') this.pcbView.applyView(); });
   }
 };
 

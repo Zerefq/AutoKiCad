@@ -13,6 +13,7 @@
       <button data-tab="board" class="active">Монтаж</button>
       <button data-tab="split">Монтаж + схема</button>
       <button data-tab="sch">Схема</button>
+      <button data-tab="pcb">Плата</button>
     </nav>
     <div class="actions">
       <button id="btnNew">Новый</button>
@@ -28,6 +29,8 @@
           <button data-export="kicadzip"><b>KiCad</b> — готовый проект (.zip)<small>Проект + схема + библиотека символов. Распакуйте и откройте .kicad_pro</small></button>
           <button data-export="kicad"><b>KiCad</b> — только схема (.kicad_sch)<small>Открывается в KiCad 8–10, импортируется в EasyEDA Pro</small></button>
           <button data-export="easyeda"><b>EasyEDA Standard</b> — исходник (.json)<small>Документ → Открыть → EasyEDA Source</small></button>
+          <button data-export="eepcb"><b>EasyEDA Standard</b> — плата (.json)<small>Контур, посадочные места, цепи. Документ → Открыть → EasyEDA Source; дорожки — авто- или ручная трассировка</small></button>
+          <button data-export="kicadpcb"><b>KiCad</b> — плата (.kicad_pcb)<small>Контур, посадочные места и цепи. Также входит в готовый проект (.zip)</small></button>
           <button data-export="net"><b>Netlist</b> KiCad (.net)<small>Список соединений для платы</small></button>
           <button data-export="bom"><b>BOM</b> — перечень элементов (.csv)<small>Одинаковые детали одной строкой, с корпусом и номером LCSC. Открывается в Excel</small></button>
           <hr>
@@ -45,6 +48,7 @@
     <section class="stage">
       <svg id="board" class="canvas"></svg>
       <svg id="sch" class="canvas sch" hidden></svg>
+      <svg id="pcb" class="canvas pcb" hidden></svg>
       <div class="pane-label pl-board">Макетная плата</div>
       <div class="pane-label pl-sch">Схема — строится автоматически</div>
       <div class="hint" id="hint" hidden></div>
@@ -62,6 +66,7 @@
 
   <script src="js/util.js"></script>
   <script src="js/components.js"></script>
+  <script src="js/footprints.js"></script>
   <script src="js/examples.js"></script>
   <script src="js/easyeda-lib.js"></script>
   <script src="js/netlist.js"></script>
@@ -69,6 +74,8 @@
   <script src="js/schview.js"></script>
   <script src="js/export-kicad.js"></script>
   <script src="js/export-easyeda.js"></script>
+  <script src="js/pcb.js"></script>
+  <script src="js/pcbview.js"></script>
   <script src="js/editor.js"></script>
   <script src="js/app.js"></script>
   <script>window.app = new AK.App();</script>
