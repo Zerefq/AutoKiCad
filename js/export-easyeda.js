@@ -49,6 +49,15 @@ AK.exportEasyEDA = function (project, model, opts) {
     }
     const ax = u => X(sy.x + u), ay = u => Y(sy.y + u);
     const sub = [];
+    // посадочное место из библиотеки EasyEDA (js/ee-footprints.js) — для «Конвертировать в печатную плату»;
+    // номер вывода = номер площадки EasyEDA, если площадок у вывода несколько — по выводу на каждую, в одной точке
+    const ef = (AK.EE_FOOTPRINTS || {})[c.fp || d.footprint];
+    const eeNums = num => {
+      if (!ef) return [num];
+      const pads = d.padMap ? Object.keys(d.padMap).filter(k => d.padMap[k] === num) : [num];
+      const out = [].concat(...pads.map(p => ef.map ? ef.map[p] || [] : [p]));
+      return out.length ? out : [num];
+    };
     sub.push(`T~P~${ax(s.ref[0])}~${ay(s.ref[1])}~0~#000080~Arial~~~~~comment~${clean(c.ref)}~1~${s.ref[2]}~${id()}~0~pinpart`);
     sub.push(`T~N~${ax(s.val[0])}~${ay(s.val[1]) + 2}~0~#000080~Arial~~~~~comment~${clean(c.value || d.value)}~1~${s.val[2]}~${id()}~0~pinpart`);
     s.gfx.forEach(g => {
@@ -60,7 +69,7 @@ AK.exportEasyEDA = function (project, model, opts) {
       else if (g.t === 'text') sub.push(`T~L~${ax(g.x)}~${ay(g.y) + 3}~0~${BODY}~Arial~7pt~~~~comment~${clean(g.text)}~1~middle~${id()}~0~pinpart`);
     });
     const ROT = { R: 180, L: 0, U: 90, D: 270 };
-    Object.entries(s.pins).forEach(([num, p]) => {
+    Object.entries(s.pins).forEach(([num0, p]) => eeNums(num0).forEach((num, k) => {
       const px = ax(p.x), py = ay(p.y);
       const [dx, dy] = AK.DIRV[p.dir];
       const len = p.len * S;
@@ -68,19 +77,19 @@ AK.exportEasyEDA = function (project, model, opts) {
       const ex = px + dx * len, ey = py + dy * len;
       const name = clean(p.name || num);
       const nameVis = s.showNames && p.name ? 1 : 0;
-      const numVis = s.showNums ? 1 : 0;
+      const numVis = s.showNums && !k ? 1 : 0;
       // у вертикального вывода имя — по центру, внутри корпуса
       const anchor = dy ? 'middle' : p.dir === 'R' ? 'start' : 'end';
       sub.push(`P~show~0~${clean(num)}~${px}~${py}~${ROT[p.dir]}~${id()}~0^^${px}~${py}^^${path}~${PIN}^^` +
         `${nameVis}~${ex + dx * 3}~${ey + 3 + dy * 5}~0~${name}~${anchor}~~~#0000FF^^` +
         `${numVis}~${(px + ex) / 2}~${py - 1}~0~${clean(num)}~middle~~~#0000FF^^0~${ex}~${ey}^^0~M 0 0`);
-    });
+    }));
     const para = d.ee ? libPara(d, c) : [
-      'package', clean(d.eePackage || ''), 'pre', clean(c.ref), 'spicePre', d.prefix,
+      'package', clean(ef ? ef.t : d.eePackage || ''), 'pre', clean(c.ref), 'spicePre', d.prefix,
       'nameAlias', 'Value', 'Value', clean(c.value || d.value), 'Footprint(KiCad)', clean(c.fp || d.footprint || ''), 'Contributor', 'AutoKiCad',
     ].join('`') + '`';
     // поля заголовка: x, y, c_para, rotation, importFlag, gId, puuid, uuid, locked
-    shapes.push(`LIB~${X(sy.x)}~${Y(sy.y)}~${para}~0~0~${id()}~~~0#@$${sub.join('#@$')}`);
+    shapes.push(`LIB~${X(sy.x)}~${Y(sy.y)}~${para}~0~0~${id()}~${ef ? ef.u : ''}~~0#@$${sub.join('#@$')}`);
   });
 
   model.wires.forEach(w => shapes.push(`W~${X(w.x1)} ${Y(w.y1)} ${X(w.x2)} ${Y(w.y2)}~#008800~1~0~none~${id()}~0`));

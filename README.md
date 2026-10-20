@@ -91,6 +91,7 @@
 ```
 js/components.js     библиотека: внешний вид (монтаж) + символ (схема) + footprint
 js/footprints.js     посадочные места из библиотеки KiCad (собирается tools/build-footprints.js)
+js/ee-footprints.js  такие же посадочные места из библиотеки EasyEDA (собирается tools/build-ee-footprints.js)
 js/examples.js       примеры из меню «Примеры» (компоненты ставятся в отверстия по имени: f14, TP1…)
 js/editor.js         редактор монтажа
 js/easyeda-lib.js    библиотека EasyEDA: поиск, загрузка, символ + вид на макетке по посадочному месту
@@ -105,6 +106,7 @@ js/app.js            интерфейс, история, файлы, приме�
 easyeda-extension/   расширение EasyEDA: main.js (окно, сборка схемы и платы через API EasyEDA), ui.txt (собранный интерфейс)
 tools/build-extension.js  сборка ui.txt из исходников
 tools/build-footprints.js сборка js/footprints.js из библиотеки KiCad
+tools/build-ee-footprints.js сборка js/ee-footprints.js: подбор посадочных мест EasyEDA по расположению площадок
 tools/serve.js       локальный сервер
 ```
 
@@ -123,4 +125,4 @@ tools/serve.js       локальный сервер
 В `js/components.js` добавьте объект в `defs`:
 - `visual` — как компонент выглядит в монтаже: SVG‑функция `draw` и координаты выводов в пикселях (10px = 2.54 мм). Расстояния между выводами должны быть кратны 10px, чтобы ножки попадали в отверстия макетки. `hit` — область захвата мышью, обычно только корпус;
 - `sym` — символ схемы в единицах U (1U = 2.54 мм). Выводы должны стоять на целых координатах, `dir` указывает от точки подключения к корпусу. Для микросхем есть готовый генератор `makeIC(left, right, width)`;
-- `footprint` — посадочное место KiCad, `fpAlt` — альтернативы. После добавления выполните `node tools/build-footprints.js`, чтобы посадочное место попало в `js/footprints.js`. Если номера площадок не совпадают с номерами выводов (как у USB-C), задайте `padMap: { площадка: вывод }`.
+- `footprint` — посадочное место KiCad, `fpAlt` — альтернативы. После добавления выполните `node tools/build-footprints.js`, чтобы посадочное место попало в `js/footprints.js`, затем `node tools/build-ee-footprints.js` — для «Конвертировать в печатную плату» в EasyEDA. Если номера площадок не совпадают с номерами выводов (как у USB-C), задайте `padMap: { площадка: вывод }`.
