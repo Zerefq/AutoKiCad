@@ -201,7 +201,14 @@ AK.PCB = (function () {
       if (d.lcsc) para.push('Supplier Part', clean(d.lcsc));
       shapes.push(`LIB~${X(part.x)}~${Y(part.y)}~${para.join('`')}\`~${(((part.rot || 0) % 360) + 360) % 360}~~${id()}~1~${uuid()}~${now}~0#@$${sub.join('#@$')}`);
     });
-    (project.pcb.texts || []).forEach(t => shapes.push(`TEXT~L~${X(t.x)}~${Y(t.y)}~0.6~${t.rot || 0}~0~${t.bottom ? 4 : 3}~~${U(t.size || 1.2)}~${clean(t.text)}~~~${id()}~~0~`));
+    // у EasyEDA точка надписи — начало базовой линии, поворот — против часовой; у нас — центр надписи и поворот по часовой.
+    // Ширина и высота — по шрифту EasyEDA: ≈0.86 и ≈0.95 размера на символ; надпись снизу зеркальная и идёт в обратную сторону
+    (project.pcb.texts || []).forEach(t => {
+      const sz = t.size || 1.2, w = String(t.text).length * sz * 0.86, h = sz * 0.95, a = (t.rot || 0) * Math.PI / 180;
+      const u = [Math.cos(a), Math.sin(a)], v = [Math.sin(a), -Math.cos(a)], k = t.bottom ? 1 : -1;
+      const ax = t.x + k * u[0] * w / 2 - v[0] * h / 2, ay = t.y + k * u[1] * w / 2 - v[1] * h / 2;
+      shapes.push(`TEXT~L~${X(ax)}~${Y(ay)}~0.6~${(360 - (t.rot || 0)) % 360}~${t.bottom ? 1 : 0}~${t.bottom ? 4 : 3}~~${U(sz)}~${clean(t.text)}~~~${id()}~~0~`);
+    });
     const xs = ol.map(p => p[0]), ys = ol.map(p => p[1]);
     const head = { docType: '3', editorVersion: '6.5.51', newgId: true, c_para: {}, x: X0, y: Y0, hasIdFlag: true, importFlag: 0, transformList: '' };
     // слои — как у новой платы EasyEDA, но с видимыми связями (Ratlines), контуром, отверстиями и контурами 3D-моделей (3DModel):

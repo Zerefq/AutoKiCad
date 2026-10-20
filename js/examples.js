@@ -248,7 +248,7 @@ window.AK = window.AK || {};
       { text: 'GND', x: X(-12.5), y: 7.0, size: 1 },
       { text: '+5V', x: X(12.5), y: 7.0, size: 1 },
       { text: 'Heart V1.1', x: X(19.5), y: 20, size: 1.2, rot: -90, bottom: true },
-      { text: 'by_Madamin', x: X(-17.1), y: 20.6, size: 1, rot: -90 },
+      { text: 'by_Madamin', x: X(-17.1), y: 19.6, size: 1, rot: -90 },
     ];
     return P;
   }
