@@ -5,6 +5,7 @@ AK.PcbView = class {
   constructor(svg, app) {
     this.svg = svg; this.app = app;
     this.view = { x: 60, y: 60, z: 10 }; // z — пикселей на мм
+    this.bodies = 'show';                // корпуса деталей: show — как есть, ghost — полупрозрачные, hide — скрыть
     svg.innerHTML = `<defs><pattern id="pcbgrid" width="2.54" height="2.54" patternUnits="userSpaceOnUse"><circle cx="0" cy="0" r=".09" fill="#5b6470"/></pattern></defs>` +
       `<g class="root"><rect class="bg" x="-1000" y="-1000" width="2000" height="2000" fill="url(#pcbgrid)"/><g class="content"></g><g class="temp"></g></g>`;
     this.root = svg.querySelector('.root');
@@ -79,6 +80,8 @@ AK.PcbView = class {
       }
       s += '</g>';
     });
+    // корпуса деталей — те же модели, что на вкладке «3D», вид сверху
+    if (this.bodies !== 'hide') s += `<g class="pcb-bodies" pointer-events="none"${this.bodies === 'ghost' ? ' opacity=".45"' : ''}>${this.bodiesSvg(P, pcb)}</g>`;
     // обозначения
     P.components.forEach(c => {
       const part = pcb.parts[c.id], fp = AK.PCB.footprint(c);
@@ -94,6 +97,27 @@ AK.PcbView = class {
     s += rats.map(r => `<line class="pcb-rat" x1="${r.a.x}" y1="${r.a.y}" x2="${r.b.x}" y2="${r.b.y}"/>`).join('');
     this.content.innerHTML = s;
     this.applyView();
+  }
+
+  // грани моделей, обращённые вверх, — по высоте (нижние сначала); выводы — линиями
+  bodiesSvg(P, pcb) {
+    const L = [-0.35, 0.45, 0.82], ln = Math.hypot(...L);
+    const items = [];
+    P.components.forEach(c => {
+      const part = pcb.parts[c.id], fp = AK.PCB.footprint(c);
+      if (!part || !fp) return;
+      const S = AK.Pcb3D.partScene(c, part, fp);
+      S.faces.forEach(f => {
+        if (f.n[2] < 0.03) return;
+        const k = 0.6 + 0.4 * Math.max(0, (f.n[0] * L[0] + f.n[1] * L[1] + f.n[2] * L[2]) / ln);
+        const fill = AK.Pcb3D.shade(f.color, k);
+        items.push({ z: f.P.reduce((a, p) => a + p[2], 0) / f.P.length, s: `<polygon points="${f.P.map(p => AK.util.fmt(p[0], 3) + ',' + AK.util.fmt(-p[1], 3)).join(' ')}" fill="${fill}" stroke="${fill}" stroke-width=".04"/>` });
+      });
+      S.lines.forEach(l => {
+        items.push({ z: Math.max(...l.P.map(p => p[2])), s: `<polyline points="${l.P.map(p => AK.util.fmt(p[0], 3) + ',' + AK.util.fmt(-p[1], 3)).join(' ')}" fill="none" stroke="${l.color}" stroke-width="${l.w}" stroke-linecap="round"/>` });
+      });
+    });
+    return items.sort((a, b) => a.z - b.z).map(it => it.s).join('');
   }
 
   bind() {

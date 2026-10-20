@@ -204,13 +204,13 @@ AK.PCB = (function () {
     (project.pcb.texts || []).forEach(t => shapes.push(`TEXT~L~${X(t.x)}~${Y(t.y)}~0.6~${t.rot || 0}~0~${t.bottom ? 4 : 3}~~${U(t.size || 1.2)}~${clean(t.text)}~~~${id()}~~0~`));
     const xs = ol.map(p => p[0]), ys = ol.map(p => p[1]);
     const head = { docType: '3', editorVersion: '6.5.51', newgId: true, c_para: {}, x: X0, y: Y0, hasIdFlag: true, importFlag: 0, transformList: '' };
-    // слои — как у новой платы EasyEDA, но с видимыми связями (Ratlines), контуром и отверстиями:
+    // слои — как у новой платы EasyEDA, но с видимыми связями (Ratlines), контуром, отверстиями и контурами 3D-моделей (3DModel):
     // без списка слоёв документ из исходника открывается с выключенными Ratlines и BoardOutLine
     const L = (id, name, color, on, active) => `${id}~${name}~${color}~${on}~${active ? 'true' : 'false'}~${on}~`;
     const layers = [L(1, 'TopLayer', '#FF0000', true, true), L(2, 'BottomLayer', '#0000FF', true), L(3, 'TopSilkLayer', '#FFCC00', true), L(4, 'BottomSilkLayer', '#66CC33', true),
       L(5, 'TopPasteMaskLayer', '#808080', true), L(6, 'BottomPasteMaskLayer', '#800000', true), L(7, 'TopSolderMaskLayer', '#800080', true), L(8, 'BottomSolderMaskLayer', '#AA00FF', true),
       L(9, 'Ratlines', '#6464FF', true), L(10, 'BoardOutLine', '#FF00FF', true), L(11, 'Multi-Layer', '#C0C0C0', true), L(12, 'Document', '#FFFFFF', true),
-      L(13, 'TopAssembly', '#33CC99', false), L(14, 'BottomAssembly', '#5555FF', false), L(15, 'Mechanical', '#F022F0', false), L(19, '3DModel', '#66CCFF', false),
+      L(13, 'TopAssembly', '#33CC99', false), L(14, 'BottomAssembly', '#5555FF', false), L(15, 'Mechanical', '#F022F0', false), L(19, '3DModel', '#66CCFF', true),
       L('Hole', 'Hole', '#222222', true), L('DRCError', 'DRCError', '#FAD609', true)];
     return {
       head,

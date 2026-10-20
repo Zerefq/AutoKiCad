@@ -516,5 +516,8 @@ AK.Pcb3D = (function () {
     }
   }
 
-  return { View, build, resistorBands };
+  // модель одной детали — для корпусов на 2D-виде платы (вид сверху)
+  function partScene(c, part, fp) { const S = new Scene(); partModel(S, c, part, fp); return S; }
+
+  return { View, build, partScene, shade, resistorBands };
 })();

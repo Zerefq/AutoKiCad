@@ -423,6 +423,7 @@ AK.App = class {
       if (sh.type !== 'circle') h += field('Высота, мм', `<input type="number" step="1" min="5" data-shape="h" value="${sh.h || 40}">`);
       h += field('Сдвиг контура X / Y, мм', `<div class="row2"><input type="number" step="0.5" data-shape="x" value="${sh.x || 0}"><input type="number" step="0.5" data-shape="y" value="${sh.y || 0}"></div>`);
     }
+    h += field('Корпуса деталей', `<select data-pv="bodies">${[['show', 'Показывать'], ['ghost', 'Полупрозрачные'], ['hide', 'Скрыть (только площадки)']].map(([k, n]) => `<option value="${k}"${this.pcbView.bodies === k ? ' selected' : ''}>${n}</option>`).join('')}</select>`);
     h += field('Цвет маски (только вид)', `<select data-pcb="color">${Object.entries(AK.PCB.COLORS).map(([k, [n]]) => `<option value="${k}"${pcb.color === k ? ' selected' : ''}>${e(n)}</option>`).join('')}</select>`);
     const ol = AK.PCB.outline(P);
     const w = Math.max(...ol.map(p => p[0])) - Math.min(...ol.map(p => p[0])), hh = Math.max(...ol.map(p => p[1])) - Math.min(...ol.map(p => p[1]));
@@ -470,6 +471,7 @@ AK.App = class {
       redraw();
     }));
     el.querySelectorAll('[data-pcb]').forEach(s => s.addEventListener('change', () => { P.pcb[s.dataset.pcb] = s.value; redraw(); }));
+    el.querySelectorAll('[data-pv]').forEach(s => s.addEventListener('change', () => { this.pcbView[s.dataset.pv] = s.value; this.pcbView.render(); }));
     el.querySelectorAll('[data-pa]').forEach(b => b.addEventListener('click', () => {
       const a = b.dataset.pa;
       if (a === 'rot90') this.pcbView.rotateSel(90);

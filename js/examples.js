@@ -248,6 +248,7 @@ window.AK = window.AK || {};
       { text: 'GND', x: X(-12.5), y: 7.0, size: 1 },
       { text: '+5V', x: X(12.5), y: 7.0, size: 1 },
       { text: 'Heart V1.1', x: X(19.5), y: 20, size: 1.2, rot: -90, bottom: true },
+      { text: 'by_Madamin', x: X(-17.1), y: 20.6, size: 1, rot: -90 },
     ];
     return P;
   }
@@ -269,6 +270,17 @@ window.AK = window.AK || {};
     { id: 'heart', name: 'Example_Heart', desc: 'Плата-сердце: ATtiny85, 11 светодиодов WS2812B, кнопки, USB-C. С печатной платой в форме сердца', build: heart },
     { id: 'heart3d', name: 'Example_Heart_3D', desc: 'Та же плата-сердце, открывается сразу в 3D: фиолетовая плата с деталями, как на фото. В EasyEDA — с 3D-моделями деталей', build: heart3d, tab: '3d' },
   ];
+
+  // подпись автора на каждой плате-примере: под деталями, в поле контура
+  function sign(P) {
+    const pcb = AK.PCB.ensure(P);
+    if (!pcb.texts.some(t => t.text === 'by_Madamin')) {
+      const b = AK.PCB.partsBBox(P);
+      pcb.texts.push({ text: 'by_Madamin', x: Math.round((b.x1 + b.x2) / 2 * 10) / 10, y: Math.round((b.y2 + 1.1) * 10) / 10, size: 1 });
+    }
+    return P;
+  }
+  AK.EXAMPLES.forEach(ex => { const f = ex.build; ex.build = () => sign(f()); });
 
   AK.demoProject = blinker;
 })();
