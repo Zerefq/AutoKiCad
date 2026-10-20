@@ -252,6 +252,13 @@ window.AK = window.AK || {};
     return P;
   }
 
+  // плата-сердце для 3D-вида: схема и расстановка — как у Example_Heart, открывается на вкладке «3D»
+  function heart3d() {
+    const P = heart();
+    P.name = 'Example_Heart_3D';
+    return P;
+  }
+
   AK.EXAMPLES = [
     { id: 'led', name: 'Светодиод с резистором', desc: 'Батарея, резистор и светодиод', build: ledBasic },
     { id: 'blinker', name: 'Мигалка на NE555', desc: 'Таймер в режиме генератора, мигает светодиод', build: blinker },
@@ -260,6 +267,7 @@ window.AK = window.AK || {};
     { id: 'reg', name: 'Стабилизатор 5 В', desc: '7805 делает +5 В из 9 В батареи', build: regulator },
     { id: 'nano', name: 'Arduino Nano: Blink', desc: 'Светодиод на выводе D13', build: nanoBlink },
     { id: 'heart', name: 'Example_Heart', desc: 'Плата-сердце: ATtiny85, 11 светодиодов WS2812B, кнопки, USB-C. С печатной платой в форме сердца', build: heart },
+    { id: 'heart3d', name: 'Example_Heart_3D', desc: 'Та же плата-сердце, открывается сразу в 3D: фиолетовая плата с деталями, как на фото. В EasyEDA — с 3D-моделями деталей', build: heart3d, tab: '3d' },
   ];
 
   AK.demoProject = blinker;

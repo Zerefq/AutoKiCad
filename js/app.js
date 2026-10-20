@@ -14,6 +14,7 @@ AK.App = class {
     this.editor = new AK.Editor(document.getElementById('board'), this);
     this.schView = new AK.SchView(document.getElementById('sch'), this);
     this.pcbView = new AK.PcbView(document.getElementById('pcb'), this);
+    this.pcb3d = new AK.Pcb3D.View(document.getElementById('pcb3d'), this);
     this.buildPalette();
     this.bindUI();
     this.changed({ noSave: true });
@@ -62,6 +63,7 @@ AK.App = class {
     this.editor.render();
     if (this.tab === 'split' || this.tab === 'sch') this.showSchematic(opts.keepView || opts.schOnly);
     if (this.tab === 'pcb') this.pcbView.render();
+    if (this.tab === '3d') this.pcb3d.render();
     this.renderInspector();
     this.renderProjectParts();
   }
@@ -103,27 +105,31 @@ AK.App = class {
   }
 
   // ---------------- вкладки ----------------
-  // board — только монтаж, split — монтаж и схема рядом, sch — только схема, pcb — печатная плата
+  // board — только монтаж, split — монтаж и схема рядом, sch — только схема, pcb — печатная плата, 3d — плата в объёме
   setTab(tab) {
     const resize = (tab === 'split') !== (this.tab === 'split');
     const firstPcb = tab === 'pcb' && !this.pcbShown;
     this.tab = tab;
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     // у SVG-элементов нет свойства .hidden — работаем с атрибутом
-    document.getElementById('board').toggleAttribute('hidden', tab === 'sch' || tab === 'pcb');
-    document.getElementById('sch').toggleAttribute('hidden', tab === 'board' || tab === 'pcb');
+    const board3 = tab === 'pcb' || tab === '3d';
+    document.getElementById('board').toggleAttribute('hidden', tab === 'sch' || board3);
+    document.getElementById('sch').toggleAttribute('hidden', tab === 'board' || board3);
     document.getElementById('pcb').toggleAttribute('hidden', tab !== 'pcb');
+    document.getElementById('pcb3d').toggleAttribute('hidden', tab !== '3d');
     document.querySelector('.stage').classList.toggle('split', tab === 'split');
-    document.getElementById('palette').classList.toggle('dim', tab === 'sch' || tab === 'pcb');
+    document.getElementById('palette').classList.toggle('dim', tab === 'sch' || board3);
     this.editor.cancel();
     this.hint(tab === 'sch' ? 'Схема построена автоматически. Перетаскивайте символы — провода перестроятся.'
-      : tab === 'pcb' ? 'Плата: перетаскивайте детали, R — поворот на 90° (Shift+R — на 45°). Пунктир — связи, которые нужно развести дорожками.' : '');
+      : tab === 'pcb' ? 'Плата: перетаскивайте детали, R — поворот на 90° (Shift+R — на 45°). Пунктир — связи, которые нужно развести дорожками.'
+        : tab === '3d' ? '3D: тяните мышью — вращение, колесо — масштаб, правая кнопка — сдвиг, двойной щелчок — вернуть вид.' : '');
     if (tab === 'split' || tab === 'sch') this.showSchematic(false);
     if (tab === 'pcb') {
       this.pcbView.render();
       if (firstPcb) { this.pcbShown = true; requestAnimationFrame(() => this.pcbView.fit()); }
     }
-    if (resize && tab !== 'sch' && tab !== 'pcb') requestAnimationFrame(() => this.editor.fit());
+    if (tab === '3d') this.pcb3d.render();
+    if (resize && tab !== 'sch' && !board3) requestAnimationFrame(() => this.editor.fit());
     this.renderInspector();
   }
 
@@ -246,10 +252,13 @@ AK.App = class {
     this.toast('Создаю схему в EasyEDA…');
   }
 
-  sendPcbToEasyEDA() {
+  // opts.view3d — сразу открыть 3D-вид EasyEDA с цветом маски платы
+  sendPcbToEasyEDA(opts) {
     if (!this.project.components.some(c => AK.PCB.footprint(c))) { this.toast('Сначала добавьте компоненты'); return; }
-    window.parent.postMessage({ akc: 'buildPcb', payload: AK.PCB.exportEasyEDA(this.project, this.netlist()) }, '*');
-    this.toast('Создаю плату в EasyEDA…');
+    const pcb = AK.PCB.ensure(this.project);
+    const view3d = opts && opts.view3d ? { color: pcb.color || 'green' } : null;
+    window.parent.postMessage({ akc: 'buildPcb', payload: AK.PCB.exportEasyEDA(this.project, this.netlist()), view3d }, '*');
+    this.toast(view3d ? 'Создаю плату и 3D-вид в EasyEDA…' : 'Создаю плату в EasyEDA…');
   }
 
   // ---------------- инспектор ----------------
@@ -262,6 +271,11 @@ AK.App = class {
     const multi = sel && sel.kind === 'multi' ? this.project.components.filter(c => sel.ids.includes(c.id)) : null;
     const wire = sel && sel.kind === 'wire' ? this.project.wires.find(w => w.id === sel.id) : null;
 
+    if (this.tab === '3d') {
+      el.innerHTML = this.inspector3d();
+      this.bindInspector3d(el);
+      return;
+    }
     if (this.tab === 'pcb') {
       el.innerHTML = this.pcbInspector(comp);
       this.bindPcbInspector(el, comp);
@@ -465,6 +479,32 @@ AK.App = class {
     }));
   }
 
+  inspector3d() {
+    const e = AK.util.esc, pcb = AK.PCB.ensure(this.project);
+    let h = '<h3>Плата в 3D</h3>';
+    h += `<label class="field"><span>Цвет маски</span><select data-pcb3="color">${Object.entries(AK.PCB.COLORS).map(([k, [n]]) => `<option value="${k}"${pcb.color === k ? ' selected' : ''}>${e(n)}</option>`).join('')}</select></label>`;
+    h += `<label class="field"><span>Детали</span><select data-pcb3="parts"><option value="1"${this.pcb3d.showParts ? ' selected' : ''}>Показывать</option><option value=""${this.pcb3d.showParts ? '' : ' selected'}>Скрыть (только плата)</option></select></label>`;
+    h += '<h4>Вид</h4><div class="btnrow"><button data-v3="0,55">Наклон</button><button data-v3="0,90">Сверху</button><button data-v3="0,12">Спереди</button><button data-v3="-35,35">Сбоку</button></div>';
+    if (AK.EMBED) h += '<div class="btnrow"><button class="primary" data-v3="ee">3D-вид в EasyEDA</button></div><div class="muted small">Создаёт плату в EasyEDA и открывает её 3D-вид: модели деталей из библиотеки EasyEDA, цвет маски — как здесь.</div>';
+    h += `<ol class="muted small"><li>Тяните мышью — вращение, колесо — масштаб, правая кнопка или <kbd>Shift</kbd> — сдвиг.</li>
+      <li>Детали расставляются на вкладке «Плата».</li>
+      <li>${AK.EMBED ? 'В EasyEDA' : 'После экспорта платы в EasyEDA'} 3D-вид (<i>Вид → 3D-вид</i>) показывает настоящие 3D-модели деталей: они уже привязаны к посадочным местам.</li></ol>`;
+    return h;
+  }
+
+  bindInspector3d(el) {
+    el.querySelectorAll('[data-pcb3]').forEach(inp => inp.addEventListener('change', () => {
+      if (inp.dataset.pcb3 === 'parts') this.pcb3d.showParts = !!inp.value;
+      else { this.project.pcb[inp.dataset.pcb3] = inp.value; this.save(); }
+      this.pcb3d.render();
+    }));
+    el.querySelectorAll('[data-v3]').forEach(b => b.addEventListener('click', () => {
+      if (b.dataset.v3 === 'ee') { this.sendPcbToEasyEDA({ view3d: true }); return; }
+      const [y, p] = b.dataset.v3.split(',').map(Number);
+      this.pcb3d.setView(y, p);
+    }));
+  }
+
   relayout() {
     this.checkpoint();
     this.project.components.forEach(c => { delete c.sch; });
@@ -479,6 +519,7 @@ AK.App = class {
     this.select(null);
     this.changed();
     this.editor.fit();
+    if (ex.tab) { this.setTab(ex.tab); if (ex.tab === '3d') this.pcb3d.setView(0, 55); }
     this.toast(`Пример «${ex.name}» загружен. Вернуть прежний проект — Ctrl+Z`);
   }
 
@@ -611,7 +652,7 @@ AK.App = class {
     }));
     document.addEventListener('click', e => dds.forEach(dd => { if (!dd.contains(e.target)) dd.classList.remove('open'); }));
 
-    const view = () => (this.tab === 'sch' ? this.schView : this.tab === 'pcb' ? this.pcbView : this.editor);
+    const view = () => (this.tab === 'sch' ? this.schView : this.tab === 'pcb' ? this.pcbView : this.tab === '3d' ? this.pcb3d : this.editor);
     $('zoomIn').addEventListener('click', () => view().zoomBy(1.25));
     $('zoomOut').addEventListener('click', () => view().zoomBy(1 / 1.25));
     $('zoomFit').addEventListener('click', () => view().fit());
@@ -622,6 +663,7 @@ AK.App = class {
       if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'я')) { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); return; }
       if ((e.ctrlKey || e.metaKey) && (k === 'y' || k === 'н')) { e.preventDefault(); this.redo(); return; }
       if ((e.ctrlKey || e.metaKey) && (k === 's' || k === 'ы')) { e.preventDefault(); this.exportAs('project'); return; }
+      if (this.tab === '3d') return;
       if (this.tab === 'pcb') {
         const pv = this.pcbView, arrows = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] };
         if (k === 'r' || k === 'к') { pv.rotateSel(e.shiftKey ? 45 : 90); return; }
@@ -644,7 +686,7 @@ AK.App = class {
       const ci = '12345678'.indexOf(e.key);
       if (ci >= 0) { this.editor.wireColor = ci; this.toast('Цвет нового провода изменён'); }
     });
-    window.addEventListener('resize', () => { this.editor.applyView(); if (this.tab === 'split' || this.tab === 'sch') this.schView.fit(); if (this.tab === 'pcb') this.pcbView.applyView(); });
+    window.addEventListener('resize', () => { this.editor.applyView(); if (this.tab === 'split' || this.tab === 'sch') this.schView.fit(); if (this.tab === 'pcb') this.pcbView.applyView(); if (this.tab === '3d') this.pcb3d.render(); });
   }
 };
 

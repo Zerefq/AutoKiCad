@@ -78,18 +78,51 @@ const cache = new Map();
 async function fetchFp(uuid) {
   if (!cache.has(uuid)) {
     const r = await get(`/api/components/${uuid}?version=${VER}&uuid=${uuid}`);
-    cache.set(uuid, r.success && r.result && r.result.dataStr ? AK.EE.fpFromPackage(r.result.dataStr) : null);
+    const ds = r.success && r.result && r.result.docType === 4 && r.result.dataStr;
+    cache.set(uuid, ds ? Object.assign(AK.EE.fpFromPackage(ds), { ds }) : null);
   }
   return cache.get(uuid);
 }
 
-// площадки с медью и номером; координаты — от центра рамки площадок
+// площадки с медью и номером; координаты — от центра рамки площадок (центр — в c)
 function norm(pads) {
   const P = pads.filter(p => p.k !== 'np_thru_hole' && p.n !== '');
   if (!P.length) return P;
   const xs = P.map(p => p.x), ys = P.map(p => p.y);
   const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-  return P.map(p => ({ n: String(p.n), th: p.k === 'thru_hole', d: Array.isArray(p.d) ? Math.min(...p.d) : (p.d || 0), s: Math.max(p.w, p.h), x: p.x - cx, y: p.y - cy }));
+  const out = P.map(p => ({ n: String(p.n), th: p.k === 'thru_hole', d: Array.isArray(p.d) ? Math.min(...p.d) : (p.d || 0), s: Math.max(p.w, p.h), x: p.x - cx, y: p.y - cy }));
+  out.c = [cx, cy];
+  return out;
+}
+
+// поворот точки на deg° по часовой стрелке (ось Y вниз), как Ft в редакторе EasyEDA
+const rotCW = (x, y, deg) => {
+  const a = deg * Math.PI / 180, c = Math.round(Math.cos(a) * 1e12) / 1e12, s = Math.round(Math.sin(a) * 1e12) / 1e12;
+  return [c * x - s * y, c * y + s * x];
+};
+const r3 = v => Math.round(v * 1000) / 1000;
+// 3D-модель посадочного места EasyEDA (SVGNODE c_etype=outline3D) → в систему координат посадочного места KiCad (мм).
+// EasyEDA: точка EE = поворот на 90·k (EE.c + (KiCad − Ki.c)); обратно — поворот на −90·k, при этом
+// c_rotation по Z растёт на 90·k (в EasyEDA поворот на t по часовой уменьшает его на t).
+function model3d(ds, m) {
+  const node = ds.shape.filter(s => s.startsWith('SVGNODE~')).map(s => JSON.parse(s.slice(8))).find(n => n.attrs && n.attrs.c_etype === 'outline3D');
+  if (!node) return null;
+  const A = node.attrs, MM = 0.254, ox = +ds.head.x || 0, oy = +ds.head.y || 0;
+  const tf = /scale\(([-\d.e]+)\)\s*translate\(([-\d.e]+),\s*([-\d.e]+)\)/.exec(A.transform || '');
+  const [sc, tx, ty] = tf ? [+tf[1], +tf[2], +tf[3]] : [1, 0, 0];
+  const toKi = (x, y) => {
+    const [rx, ry] = rotCW((x - ox) * MM - m.cE[0], (y - oy) * MM - m.cE[1], -90 * m.k);
+    return [r3(rx + m.cK[0]), r3(ry + m.cK[1])];
+  };
+  const lines = (node.childNodes || []).filter(n => n.attrs && n.attrs.points).map(n => {
+    const v = n.attrs.points.trim().split(/[\s,]+/).map(Number), out = [];
+    for (let i = 0; i + 1 < v.length; i += 2) out.push(...toKi(sc * (v[i] + tx), sc * (v[i + 1] + ty)));
+    return out;
+  });
+  const [cx, cy] = String(A.c_origin).split(',').map(Number);
+  const rr = String(A.c_rotation || '0,0,0').split(',').map(Number);
+  rr[2] = (((rr[2] + 90 * m.k) % 360) + 360) % 360;
+  return { u: A.uuid, t: A.title, w: +A.c_width, h: +A.c_height, z: +A.z, r: rr, o: toKi(cx, cy), lines };
 }
 const ROT = [[1, 0, 0, 1], [0, -1, 1, 0], [-1, 0, 0, -1], [0, 1, -1, 0]];
 // соответствие площадок KiCad → EasyEDA, если расположение совпадает (с точностью до поворота на 90°);
@@ -99,7 +132,7 @@ function match(ki, ee, strict) {
   const A = norm(ki), B = norm(ee);
   if (!A.length || A.length !== B.length) return null;
   let best = null;
-  ROT.forEach(([a, b, c, d]) => {
+  ROT.forEach(([a, b, c, d], k) => {
     const map = {}, used = new Set();
     let ok = true, same = 0;
     for (const p of A) {
@@ -113,16 +146,28 @@ function match(ki, ee, strict) {
     // одна площадка EasyEDA не может принадлежать двум разным выводам KiCad
     const owner = {};
     for (const [k, s] of Object.entries(map)) for (const n of s) { if (owner[n] && owner[n] !== k) return; owner[n] = k; }
-    if (!best || same > best.same) best = { same, map };
+    if (!best || same > best.same) best = { same, map, k, cK: A.c, cE: B.c };
   });
   return best;
 }
+
+// прежний выбор (js/ee-footprints.js) проверяется первым — поиск EasyEDA выдаёт результаты в разном порядке
+let prev = {};
+try {
+  const src = fs.readFileSync(path.join(ROOT, 'js', 'ee-footprints.js'), 'utf8');
+  prev = JSON.parse(src.slice(src.indexOf('AK.EE_FOOTPRINTS = ') + 19).trim().replace(/;$/, ''));
+} catch (e) { /* первый запуск */ }
 
 (async () => {
   const out = {}, miss = [];
   for (const name of Object.keys(AK.FOOTPRINTS).sort()) {
     const ki = AK.FOOTPRINTS[name].pads, qs = Q[name] || [name.split(':').pop()];
     let found = null;
+    if (prev[name]) {
+      const fp = await fetchFp(prev[name].u);
+      const m = fp && (match(ki, fp.pads, true) || match(ki, fp.pads, false));
+      if (m) found = { t: prev[name].t, u: prev[name].u, m, fp };
+    }
     // сначала строгое совпадение по всем запросам, затем с бóльшим допуском
     for (const strict of [true, false]) for (const wd of qs) {
       if (found) break;
@@ -132,18 +177,22 @@ function match(ki, ee, strict) {
       for (const c of list.slice(0, 25)) {
         const fp = await fetchFp(c.uuid);
         const m = fp && match(ki, fp.pads, strict);
-        if (m) { found = { t: c.title, u: c.uuid, m }; break; }
+        if (m) { found = { t: c.title, u: c.uuid, m, fp }; break; }
       }
     }
     if (!found) { miss.push(name); console.log('—', name); continue; }
     const same = Object.entries(found.m.map).every(([k, s]) => s.size === 1 && s.has(k));
     out[name] = { t: found.t, u: found.u };
     if (!same) out[name].map = Object.fromEntries(Object.entries(found.m.map).map(([k, s]) => [k, [...s]]));
-    console.log('✓', name, '→', found.t, same ? '' : JSON.stringify(out[name].map));
+    const m3 = model3d(found.fp.ds, found.m);
+    if (m3) out[name].m3d = m3;
+    console.log('✓', name, '→', found.t, m3 ? '3D' : '', same ? '' : JSON.stringify(out[name].map));
   }
   const head = `// Посадочные места библиотеки EasyEDA, совпадающие с посадочными местами KiCad из js/footprints.js
 // (сгенерировано tools/build-ee-footprints.js). t — имя, u — uuid на сервере EasyEDA,
 // map — номера площадок KiCad → EasyEDA, если они различаются. Нужно для «Конвертировать в печатную плату».
+// m3d — 3D-модель EasyEDA в координатах посадочного места KiCad (мм): u — uuid модели, w/h/z — размеры
+// и высота в единицах EasyEDA, r — поворот X,Y,Z, o — центр, lines — контур модели (слой 3DModel).
 // Источник: JLCEDA/EasyEDA Official Library, https://easyeda.com
 window.AK = window.AK || {};
 AK.EE_FOOTPRINTS = `;

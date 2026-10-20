@@ -178,6 +178,23 @@ AK.PCB = (function () {
         sub.push(`PAD~${shape}~${X(pp.x)}~${Y(pp.y)}~${U(p.w)}~${U(p.h)}~${layer}~${clean(pp.net)}~${clean(p.n)}~${holeR}~${ptStr}~${a}~${id()}~${holeLen}~${holePts}~Y~0~0~0.2~${X(pp.x)},${Y(pp.y)}`);
       });
       fp.silk.forEach(l => sub.push(`TRACK~${Math.max(0.6, U(l.w))}~3~~${pts(l.p.map(([x, y]) => tr(x, y)))}~${id()}~0`));
+      // 3D-модель из библиотеки EasyEDA (js/ee-footprints.js) — её видно в «Вид → 3D-вид» EasyEDA;
+      // поворот детали на rot° по часовой уменьшает поворот модели по Z на rot (как в редакторе EasyEDA)
+      const ef = (AK.EE_FOOTPRINTS || {})[fpName(c)], m3 = ef && ef.m3d;
+      if (m3) {
+        const gId = id(), r = m3.r.slice();
+        r[2] = (((r[2] - (part.rot || 0)) % 360) + 360) % 360;
+        const o = tr(m3.o[0], m3.o[1]);
+        sub.push('SVGNODE~' + JSON.stringify({
+          gId, nodeName: 'g', nodeType: 1, layerid: '19',
+          attrs: { c_width: String(m3.w), c_height: String(m3.h), c_rotation: r.join(','), z: String(m3.z), c_origin: X(o[0]) + ',' + Y(o[1]), uuid: m3.u, c_etype: 'outline3D', id: gId, title: m3.t, layerid: '19', transform: 'scale(1) translate(0, 0)' },
+          childNodes: m3.lines.map((l, i) => {
+            const p = [];
+            for (let k = 0; k + 1 < l.length; k += 2) p.push(tr(l[k], l[k + 1]));
+            return { gId: gId + '_line' + i, nodeName: 'polyline', nodeType: 1, attrs: { fill: 'none', id: gId + '_line' + i, c_shapetype: 'line', points: pts(p) } };
+          }),
+        }));
+      }
       const t = refPos(c, part, fp);
       sub.push(`TEXT~P~${X(t[0])}~${Y(t[1])}~0.6~${t[2]}~0~3~~4~${clean(c.ref)}~~~${id()}~~0~`);
       const para = ['package', clean(fpName(c).split(':').pop()), 'pre', clean(c.ref), 'Value', clean(c.value || d.value)];
@@ -267,5 +284,5 @@ AK.PCB = (function () {
     return out.join('\n') + '\n';
   }
 
-  return { footprint, fpName, padPin, ensure, pads, ratsnest, outline, partBox, partsBBox, rot, exportEasyEDA, exportKicad, SHAPES, COLORS, HEART };
+  return { footprint, fpName, padPin, ensure, pads, ratsnest, outline, partBox, partsBBox, refPos, rot, exportEasyEDA, exportKicad, SHAPES, COLORS, HEART };
 })();

@@ -191,6 +191,8 @@ table.pins td:first-child { color: var(--muted); width: 28px; }
 
 /* ---------- плата ---------- */
 .canvas.pcb { background: #2b3038; }
+.canvas.pcb3d { background: #cfd5dc; cursor: grab; }
+.canvas.pcb3d:active { cursor: grabbing; }
 .pcb-part { cursor: move; }
 .pcb-pad { cursor: move; }
 .pcb-ref { font: 600 1.1px Arial, sans-serif; text-anchor: middle; pointer-events: none; }

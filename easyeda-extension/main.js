@@ -82,18 +82,38 @@
 
   // Плата: новый документ платы с контуром, посадочными местами и цепями на площадках.
   // Связи (ratlines) EasyEDA строит сама по именам цепей; дорожки — автотрассировкой или вручную.
-  function buildPcb(doc) {
+  // view3d — затем открыть «3D-вид» и выставить цвет маски (цвет в документе не хранится — только в окне 3D-вида)
+  function buildPcb(doc, view3d) {
     try {
       api('applySource', { source: doc, createNew: true });
       reply({ akc: 'built', ok: true, kind: 'pcb' });
       close();
+      if (view3d) setTimeout(function () { open3d(view3d.color); }, 1200);
     } catch (e) { reply({ akc: 'built', ok: false, kind: 'pcb', error: String(e && e.message || e) }); }
+  }
+  function open3d(color) {
+    easyeda.extension.doCommand('3DView');
+    // окно 3D-вида — видимый iframe editorpage15 (у прежних 3D-видов свои iframe); плату оно строит не сразу
+    // и при этом ставит свой цвет, поэтому цвет выставляется несколько раз, пока окно не загрузится
+    var tries = 0, done = 0;
+    var iv = setInterval(function () {
+      tries++;
+      var f = [].slice.call(document.querySelectorAll('iframe')).filter(function (x) { return /editorpage15/.test(x.src) && x.offsetParent; }).pop();
+      var w = f && f.contentWindow;
+      if (w && typeof w.attrpanel_apply === 'function') {
+        try { w.attrpanel_apply(null, { 'attr-border-color': color }); done++; } catch (e) { /* окно 3D-вида ещё строит плату */ }
+        // выпадающий список в панели справа — тоже на новый цвет
+        var sel = [].slice.call(document.querySelectorAll('select[name="attr-border-color"]')).filter(function (s) { return s.offsetParent; })[0];
+        if (sel) sel.value = color;
+      }
+      if (done >= 8 || tries > 80) clearInterval(iv);
+    }, 1000);
   }
 
   window.addEventListener('message', function (e) {
     if (!frame || e.source !== frame.contentWindow || !e.data || !e.data.akc) return;
     if (e.data.akc === 'build') build(e.data.payload);
-    if (e.data.akc === 'buildPcb') buildPcb(e.data.payload);
+    if (e.data.akc === 'buildPcb') buildPcb(e.data.payload, e.data.view3d);
     if (e.data.akc === 'close') close();
   });
 

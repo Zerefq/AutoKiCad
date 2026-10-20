@@ -14,6 +14,7 @@
       <button data-tab="split">Монтаж + схема</button>
       <button data-tab="sch">Схема</button>
       <button data-tab="pcb">Плата</button>
+      <button data-tab="3d">3D</button>
     </nav>
     <div class="actions">
       <button id="btnNew">Новый</button>
@@ -49,6 +50,7 @@
       <svg id="board" class="canvas"></svg>
       <svg id="sch" class="canvas sch" hidden></svg>
       <svg id="pcb" class="canvas pcb" hidden></svg>
+      <canvas id="pcb3d" class="canvas pcb3d" hidden></canvas>
       <div class="pane-label pl-board">Макетная плата</div>
       <div class="pane-label pl-sch">Схема — строится автоматически</div>
       <div class="hint" id="hint" hidden></div>
@@ -77,6 +79,7 @@
   <script src="js/export-easyeda.js"></script>
   <script src="js/pcb.js"></script>
   <script src="js/pcbview.js"></script>
+  <script src="js/pcb3d.js"></script>
   <script src="js/editor.js"></script>
   <script src="js/app.js"></script>
   <script>window.app = new AK.App();</script>
